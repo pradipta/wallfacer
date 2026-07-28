@@ -146,3 +146,7 @@ make release # darwin/linux × amd64/arm64 binaries in dist/
 ```
 
 Contributions welcome — especially new agent adapters.
+
+## License
+
+[MIT](LICENSE)
