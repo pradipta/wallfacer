@@ -1,4 +1,5 @@
 /wallfacer
 dist/
+plan.md
 *.db
 .DS_Store
