@@ -8,12 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/pradipta/wallfacer/internal/banner"
 	"github.com/pradipta/wallfacer/internal/format"
 	"github.com/pradipta/wallfacer/internal/store"
 )
@@ -98,7 +100,20 @@ type model struct {
 	// confirmingDelete is set while the d→y/n prompt is up.
 	confirmingDelete bool
 	status           string
+	// splash is true while the launch banner is showing; w/h track the
+	// terminal size so the banner can be centered.
+	splash bool
+	w, h   int
 }
+
+// splashDoneMsg ends the launch splash after splashDuration elapses.
+type splashDoneMsg struct{}
+
+const splashDuration = 1200 * time.Millisecond
+
+// splashShown ensures the banner appears once per process, not every time the
+// browser reopens after an agent session exits.
+var splashShown bool
 
 var (
 	badgeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
@@ -124,7 +139,12 @@ func newModel(s *store.Store) (model, error) {
 
 	ti := textinput.New()
 	ti.CharLimit = 512
-	return model{store: s, list: l, input: ti}, nil
+	m := model{store: s, list: l, input: ti}
+	if !splashShown {
+		m.splash = true
+		splashShown = true
+	}
+	return m, nil
 }
 
 func extraKeys() []key.Binding {
@@ -138,14 +158,28 @@ func extraKeys() []key.Binding {
 	}
 }
 
-func (m model) Init() tea.Cmd { return nil }
+func (m model) Init() tea.Cmd {
+	if m.splash {
+		return tea.Tick(splashDuration, func(time.Time) tea.Msg { return splashDoneMsg{} })
+	}
+	return nil
+}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.w, m.h = msg.Width, msg.Height
 		m.list.SetSize(msg.Width, msg.Height-2)
 		return m, nil
+	case splashDoneMsg:
+		m.splash = false
+		return m, nil
 	case tea.KeyMsg:
+		// Any key dismisses the splash early.
+		if m.splash {
+			m.splash = false
+			return m, nil
+		}
 		if m.kind != inputNone {
 			return m.updateInput(msg)
 		}
@@ -319,6 +353,9 @@ func (m model) selected() (store.Session, bool) {
 }
 
 func (m model) View() string {
+	if m.splash {
+		return m.splashView()
+	}
 	var bottom string
 	switch {
 	case m.kind != inputNone:
@@ -330,6 +367,20 @@ func (m model) View() string {
 		bottom = statusStyle.Render(m.status)
 	}
 	return m.list.View() + "\n" + bottom
+}
+
+// splashView centers the launch banner in the terminal.
+func (m model) splashView() string {
+	art := strings.Trim(banner.Art, "\n")
+	body := lipgloss.JoinVertical(lipgloss.Center,
+		badgeStyle.Render(art),
+		"",
+		statusStyle.Render("loading sessions…"),
+	)
+	if m.w == 0 || m.h == 0 {
+		return body
+	}
+	return lipgloss.Place(m.w, m.h, lipgloss.Center, lipgloss.Center, body)
 }
 
 func splitTags(s string) []string {

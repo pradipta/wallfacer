@@ -6,6 +6,7 @@ import (
 
 	"github.com/mattn/go-isatty"
 	"github.com/pradipta/wallfacer/internal/agent"
+	"github.com/pradipta/wallfacer/internal/banner"
 	"github.com/pradipta/wallfacer/internal/launcher"
 	"github.com/pradipta/wallfacer/internal/tui"
 	"github.com/spf13/cobra"
@@ -17,7 +18,7 @@ var Version = "dev"
 var rootCmd = &cobra.Command{
 	Use:   "wallfacer",
 	Short: "Session manager and launcher for Claude Code (and other coding agents)",
-	Long: banner + `
+	Long: banner.Art + `
 wallfacer indexes coding-agent sessions scattered across your filesystem,
 lets you name, tag, group, search, and delete them, and launches or resumes
 sessions in any directory.

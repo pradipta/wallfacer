@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gofmt -l cmd/ internal/)",
+      "Bash(go vet *)",
+      "Bash(go build *)",
+      "Bash(./wallfacer --help)"
+    ]
+  }
+}
