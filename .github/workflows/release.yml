@@ -1,0 +1,40 @@
+name: release
+
+# Fires on every version tag. Stable tags (v0.1.0) publish a normal release;
+# tags with a pre-release suffix (v0.1.0-rc.1, v0.1.0-beta.2) are marked as
+# GitHub pre-releases and never become the repo's "latest" release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # let GITHUB_TOKEN create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so `git describe` sees the tag
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Test
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Build release binaries
+        run: make release
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          # Anything with a semver pre-release suffix (contains "-") is an RC.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
