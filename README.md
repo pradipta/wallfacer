@@ -100,6 +100,8 @@ Other agents plug in through a small adapter interface — see
 - [ ] `wallfacer restore` (un-trash from the CLI)
 - [ ] Export a session transcript to Markdown
 - [ ] Stats (sessions per project/week, disk usage)
+- [ ] Desktop app — sessions in a sidebar, embedded terminal, multiple tabs
+      (Wails + xterm.js on top of the same Go internals)
 
 ## Contributing
 
