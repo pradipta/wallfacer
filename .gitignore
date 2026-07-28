@@ -1,0 +1,4 @@
+/wallfacer
+dist/
+*.db
+.DS_Store
