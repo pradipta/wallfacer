@@ -233,11 +233,21 @@ func (s *Store) Get(id string) (*Session, error) {
 	return &list[0], nil
 }
 
-// Resolve finds a single session by ID prefix or (case-insensitive) exact
-// title match. Ambiguity is an error listing the candidates.
+// Resolve finds a single active session by ID prefix or (case-insensitive)
+// exact title match. Ambiguity is an error listing the candidates.
 func (s *Store) Resolve(ref string) (*Session, error) {
+	return s.resolve(ref, `s.status = 'active'`)
+}
+
+// ResolveAny is Resolve over all user-visible sessions, including missing
+// and trashed ones (needed by rm --purge and show).
+func (s *Store) ResolveAny(ref string) (*Session, error) {
+	return s.resolve(ref, `s.status != 'sidechain'`)
+}
+
+func (s *Store) resolve(ref, statusCond string) (*Session, error) {
 	list, err := s.list(
-		`WHERE s.status = 'active' AND (s.id LIKE ? OR lower(s.title) = lower(?))`,
+		`WHERE `+statusCond+` AND (s.id LIKE ? OR lower(s.title) = lower(?))`,
 		[]any{ref + "%", ref})
 	if err != nil {
 		return nil, err

@@ -129,6 +129,65 @@ func TestResolve(t *testing.T) {
 	}
 }
 
+func TestTrashAndPurge(t *testing.T) {
+	dataDir := t.TempDir()
+	s, err := store.Open(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// A real file on disk standing in for the agent's session JSONL.
+	srcDir := t.TempDir()
+	srcFile := filepath.Join(srcDir, "ttt-111.jsonl")
+	os.WriteFile(srcFile, []byte("session content"), 0o644)
+
+	sess := sampleSession("ttt-111")
+	sess.FilePath = srcFile
+	if err := s.Upsert(sess); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := s.Get("ttt-111")
+	dest, err := s.Trash(*got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(srcFile); !os.IsNotExist(err) {
+		t.Error("original file should be gone after trash")
+	}
+	if b, err := os.ReadFile(dest); err != nil || string(b) != "session content" {
+		t.Errorf("trashed file content: %s, %v", b, err)
+	}
+
+	// Trashed sessions are hidden by default, visible with IncludeHidden,
+	// and cannot be resolved for resume.
+	if list, _ := s.List(store.Filter{}); len(list) != 0 {
+		t.Errorf("trashed session in default list: %v", list)
+	}
+	if list, _ := s.List(store.Filter{IncludeHidden: true}); len(list) != 1 ||
+		list[0].Status != store.StatusTrashed {
+		t.Errorf("hidden list: %v", list)
+	}
+	if _, err := s.Resolve("ttt"); err == nil {
+		t.Error("Resolve should not find trashed sessions")
+	}
+	trashed, err := s.ResolveAny("ttt")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Purge(*trashed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Error("purge should remove the trashed file")
+	}
+	if _, err := s.Get("ttt-111"); err != store.ErrNotFound {
+		t.Errorf("purge should remove the row, got %v", err)
+	}
+}
+
 const fixtureSession = `{"type":"summary","summary":"Build session manager"}
 {"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"Build me a session manager CLI"},"timestamp":"2026-07-28T06:26:31.000Z","cwd":"/Users/alice/projects/my-app","gitBranch":"main","sessionId":"aaa"}
 `
