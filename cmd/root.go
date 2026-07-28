@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/mattn/go-isatty"
 	"github.com/pradipta/wallfacer/internal/agent"
@@ -13,7 +14,21 @@ import (
 )
 
 // Version is set at build time via -ldflags "-X github.com/pradipta/wallfacer/cmd.Version=...".
+// When built without that flag (e.g. `go install github.com/pradipta/wallfacer@v1.0.0`),
+// it falls back to the module version Go embeds in the binary's build info.
 var Version = "dev"
+
+// resolveVersion returns the ldflags-injected version when present, otherwise
+// the module version from build info (set for `go install module@version`).
+func resolveVersion() string {
+	if Version != "dev" {
+		return Version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" {
+		return bi.Main.Version
+	}
+	return Version
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "wallfacer",
@@ -24,7 +39,7 @@ lets you name, tag, group, search, and delete them, and launches or resumes
 sessions in any directory.
 
 Run with no arguments to open the interactive session browser.`,
-	Version: Version,
+	Version: resolveVersion(),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !isatty.IsTerminal(os.Stdout.Fd()) {
 			return cmd.Help()

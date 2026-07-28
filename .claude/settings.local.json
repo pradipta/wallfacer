@@ -4,7 +4,10 @@
       "Bash(gofmt -l cmd/ internal/)",
       "Bash(go vet *)",
       "Bash(go build *)",
-      "Bash(./wallfacer --help)"
+      "Bash(./wallfacer --help)",
+      "Bash(/tmp/wf-plain --version)",
+      "Bash(make build *)",
+      "Bash(./wallfacer --version)"
     ]
   }
 }
