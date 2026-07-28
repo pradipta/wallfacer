@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/pradipta-s/wallfacer/internal/format"
 	"github.com/pradipta-s/wallfacer/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -203,7 +204,7 @@ var rmCmd = &cobra.Command{
 		}
 		if !rmFlags.force {
 			fmt.Printf("%s %q (%s, last active %s)? [y/N] ",
-				action, sess.DisplayTitle(), store.ShortID(sess.ID), relTime(sess.LastActiveAt))
+				action, sess.DisplayTitle(), store.ShortID(sess.ID), format.RelTime(sess.LastActiveAt))
 			line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 			if ans := strings.ToLower(strings.TrimSpace(line)); ans != "y" && ans != "yes" {
 				fmt.Println("aborted")

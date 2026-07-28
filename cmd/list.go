@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
-	"time"
 
+	"github.com/pradipta-s/wallfacer/internal/format"
 	"github.com/pradipta-s/wallfacer/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -67,40 +67,10 @@ func printSessions(sessions []store.Session, asJSON bool) error {
 			title += " [" + x.Status + "]"
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			store.ShortID(x.ID), clip(title, 48), x.Project,
-			strings.Join(x.Tags, ","), collapseHome(x.Dir), relTime(x.LastActiveAt))
+			store.ShortID(x.ID), format.Clip(title, 48), x.Project,
+			strings.Join(x.Tags, ","), format.CollapseHome(x.Dir), format.RelTime(x.LastActiveAt))
 	}
 	return w.Flush()
-}
-
-func clip(s string, n int) string {
-	if len(s) > n {
-		return s[:n-1] + "…"
-	}
-	return s
-}
-
-func collapseHome(dir string) string {
-	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(dir, home) {
-		return "~" + strings.TrimPrefix(dir, home)
-	}
-	return dir
-}
-
-func relTime(t time.Time) string {
-	d := time.Since(t)
-	switch {
-	case d < time.Minute:
-		return "just now"
-	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
-	case d < 30*24*time.Hour:
-		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
-	default:
-		return t.Format("2006-01-02")
-	}
 }
 
 func init() {
