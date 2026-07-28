@@ -17,7 +17,8 @@ var Version = "dev"
 var rootCmd = &cobra.Command{
 	Use:   "wallfacer",
 	Short: "Session manager and launcher for Claude Code (and other coding agents)",
-	Long: `wallfacer indexes coding-agent sessions scattered across your filesystem,
+	Long: banner + `
+wallfacer indexes coding-agent sessions scattered across your filesystem,
 lets you name, tag, group, search, and delete them, and launches or resumes
 sessions in any directory.
 
