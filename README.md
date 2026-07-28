@@ -115,6 +115,7 @@ takes the full width.
 | `tab` | show or hide the detail pane |
 | `enter` | resume — the terminal is handed to the agent; the browser returns when you exit |
 | `n` | new session (prompts for directory, then title, project, tags) |
+| `tab` (at the directory prompt) | complete the directory being typed; press again to cycle matches |
 | `r` / `t` / `p` | rename / edit tags / set project |
 | `d` | delete → trash, with confirmation |
 | `?` / `q` | help / quit |

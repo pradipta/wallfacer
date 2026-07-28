@@ -100,7 +100,14 @@ type model struct {
 	draft Action
 	// confirmingDelete is set while the d→y/n prompt is up.
 	confirmingDelete bool
-	status           string
+	// compl holds the directory completions tab is cycling through, complIdx
+	// the one currently shown (-1 before the first cycle), and complValue the
+	// input value tab last wrote. Any other key clears them, so the cycle only
+	// continues while tab is the only thing being pressed.
+	compl      []string
+	complIdx   int
+	complValue string
+	status     string
 	// splash is true while the launch banner is showing; w/h track the
 	// terminal size so the banner can be centered.
 	splash bool
@@ -417,10 +424,59 @@ func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.submitInput()
+	case "tab":
+		// Tab is a completion key only where a path is being asked for; the
+		// other prompts have nothing to complete against.
+		if m.kind == inputNewDir {
+			return m.completeDir(), nil
+		}
+		return m, nil
 	}
+	m.clearCompletions()
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+// completeDir advances the directory completion for the current input: first
+// tab fills in as much as every match agrees on, and further tabs cycle the
+// matches one at a time.
+func (m model) completeDir() model {
+	value := m.input.Value()
+	if len(m.compl) > 0 && value == m.complValue {
+		m.complIdx = (m.complIdx + 1) % len(m.compl)
+		return m.setCompletion(m.compl[m.complIdx])
+	}
+
+	m.clearCompletions()
+	cands := dirCandidates(value)
+	switch len(cands) {
+	case 0:
+		return m
+	case 1:
+		// Unambiguous: take it, with nothing left to cycle through.
+		return m.setCompletion(cands[0])
+	}
+	m.compl = cands
+	if common := commonPrefix(cands); common != value {
+		// There is still shared text to fill in; leave the cycle at the start
+		// so the next tab offers the first match.
+		m.complIdx = -1
+		return m.setCompletion(common)
+	}
+	m.complIdx = 0
+	return m.setCompletion(cands[0])
+}
+
+func (m model) setCompletion(value string) model {
+	m.input.SetValue(value)
+	m.input.CursorEnd()
+	m.complValue = value
+	return m
+}
+
+func (m *model) clearCompletions() {
+	m.compl, m.complIdx, m.complValue = nil, 0, ""
 }
 
 func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -451,6 +507,7 @@ func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) openInput(kind inputKind, initial string) model {
 	m.kind = kind
+	m.clearCompletions()
 	m.input.Prompt = promptStyle.Render(inputPrompts[kind])
 	m.input.SetValue(initial)
 	m.input.CursorEnd()
@@ -517,7 +574,8 @@ func (m model) submitNew(kind inputKind, value string) (tea.Model, tea.Cmd) {
 			m.draft = Action{}
 			return m, nil
 		}
-		m.draft.Dir = expandHome(value)
+		// Clean drops the trailing separator tab completion leaves behind.
+		m.draft.Dir = filepath.Clean(expandHome(value))
 		return m.openInput(inputNewTitle, ""), nil
 	case inputNewTitle:
 		m.draft.Title = value
@@ -638,7 +696,7 @@ func (m model) chipsView() string {
 func (m model) footerView() string {
 	switch {
 	case m.kind != inputNone:
-		return m.input.View()
+		return ansi.Truncate(m.input.View()+m.completionHint(), max(m.w, 1), "…")
 	case m.confirmingDelete:
 		sel, _ := m.selected()
 		return promptStyle.Render(fmt.Sprintf("move %q to trash? [y/N]", sel.DisplayTitle()))
@@ -646,6 +704,21 @@ func (m model) footerView() string {
 		return statusStyle.Render(ansi.Truncate(m.status, max(m.w, 1), "…"))
 	}
 	return footerStyle.Render(m.list.Help.View(m.list))
+}
+
+// completionHint advertises tab completion on the directory prompt, and while
+// several directories match, says where in the cycle you are.
+func (m model) completionHint() string {
+	if m.kind != inputNewDir {
+		return ""
+	}
+	if n := len(m.compl); n > 1 {
+		if m.complIdx < 0 {
+			return statusStyle.Render(fmt.Sprintf("  (%d matches, tab to cycle)", n))
+		}
+		return statusStyle.Render(fmt.Sprintf("  (%d/%d, tab to cycle)", m.complIdx+1, n))
+	}
+	return statusStyle.Render("  (tab to complete)")
 }
 
 func plural(n int, noun string) string {
