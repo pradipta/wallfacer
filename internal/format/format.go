@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // RelTime renders a compact human-relative timestamp.
@@ -33,10 +35,25 @@ func CollapseHome(dir string) string {
 	return dir
 }
 
-// Clip truncates s to at most n characters with an ellipsis.
+// Clip truncates s to at most n display cells, appending an ellipsis. It is
+// width-aware, so multibyte titles are neither corrupted nor mismeasured.
 func Clip(s string, n int) string {
-	if len(s) > n {
-		return s[:n-1] + "…"
+	if n <= 0 {
+		return ""
 	}
-	return s
+	return ansi.Truncate(s, n, "…")
+}
+
+// Size renders a byte count in the largest unit that keeps it under 1024.
+func Size(bytes int64) string {
+	switch {
+	case bytes < 1024:
+		return fmt.Sprintf("%d B", bytes)
+	case bytes < 1024*1024:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/1024)
+	case bytes < 1024*1024*1024:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/(1024*1024))
+	default:
+		return fmt.Sprintf("%.1f GB", float64(bytes)/(1024*1024*1024))
+	}
 }

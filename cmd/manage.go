@@ -176,7 +176,7 @@ var showCmd = &cobra.Command{
 		fmt.Printf("Status:      %s\n", sess.Status)
 		fmt.Printf("Created:     %s\n", sess.CreatedAt.Format("2006-01-02 15:04"))
 		fmt.Printf("Last active: %s\n", sess.LastActiveAt.Format("2006-01-02 15:04"))
-		fmt.Printf("File:        %s (%d KB)\n", sess.FilePath, sess.FileSize/1024)
+		fmt.Printf("File:        %s (%s)\n", sess.FilePath, format.Size(sess.FileSize))
 		fmt.Printf("First prompt:\n  %s\n", strings.ReplaceAll(sess.FirstPrompt, "\n", "\n  "))
 		return nil
 	},

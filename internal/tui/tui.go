@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,8 +16,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/pradipta/wallfacer/internal/banner"
-	"github.com/pradipta/wallfacer/internal/format"
 	"github.com/pradipta/wallfacer/internal/store"
 )
 
@@ -48,27 +49,11 @@ func Run(s *store.Store) (Action, error) {
 	return final.(model).action, nil
 }
 
+// item adapts a session to bubbles' list. Rendering lives entirely in
+// sessionDelegate; the only thing the list itself needs is a string to fuzzy
+// match against. The title comes first so the delegate can map match indices
+// back onto the title it draws.
 type item struct{ s store.Session }
-
-func (i item) Title() string {
-	t := i.s.DisplayTitle()
-	var badges []string
-	if i.s.Project != "" {
-		badges = append(badges, "◆ "+i.s.Project)
-	}
-	if len(i.s.Tags) > 0 {
-		badges = append(badges, "#"+strings.Join(i.s.Tags, " #"))
-	}
-	if len(badges) > 0 {
-		t += "  " + badgeStyle.Render(strings.Join(badges, "  "))
-	}
-	return t
-}
-
-func (i item) Description() string {
-	return fmt.Sprintf("%s · %s · %s",
-		format.CollapseHome(i.s.Dir), format.RelTime(i.s.LastActiveAt), i.s.AgentType)
-}
 
 func (i item) FilterValue() string {
 	return strings.Join(append([]string{i.s.DisplayTitle(), i.s.Project, i.s.Dir}, i.s.Tags...), " ")
@@ -104,6 +89,18 @@ type model struct {
 	// terminal size so the banner can be centered.
 	splash bool
 	w, h   int
+
+	// all is the unfiltered session set. It backs the header counts and the
+	// project/tag cycles, and is deliberately not refetched when a filter
+	// changes so the cycles stay stable while you page through them.
+	all      []store.Session
+	projects []string
+	tags     []string
+	// projIdx and tagIdx index into projects/tags; -1 means no filter.
+	projIdx, tagIdx int
+	// showDetail is the user's toggle; the pane also hides itself on narrow
+	// terminals regardless.
+	showDetail bool
 }
 
 // splashDoneMsg ends the launch splash after splashDuration elapses.
@@ -111,40 +108,143 @@ type splashDoneMsg struct{}
 
 const splashDuration = 1200 * time.Millisecond
 
+// Layout constants.
+const (
+	// chromeHeight is the header, the footer, and the blank line between the
+	// panes and the footer.
+	chromeHeight = 3
+	// detailMinTotalWidth is the terminal width below which the detail pane
+	// is dropped and the list takes everything.
+	detailMinTotalWidth = 100
+	detailMinWidth      = 34
+	detailMaxWidth      = 56
+)
+
 // splashShown ensures the banner appears once per process, not every time the
 // browser reopens after an agent session exits.
 var splashShown bool
 
-var (
-	badgeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
-	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
-	statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-)
-
 func newModel(s *store.Store) (model, error) {
-	sessions, err := s.List(store.Filter{})
-	if err != nil {
-		return model{}, err
-	}
-	items := make([]list.Item, len(sessions))
-	for i, x := range sessions {
-		items[i] = item{x}
-	}
-	d := list.NewDefaultDelegate()
-	l := list.New(items, d, 0, 0)
-	l.Title = "wallfacer — sessions"
+	l := list.New(nil, sessionDelegate{}, 0, 0)
+	// All chrome is drawn by View so the header can carry counts and filter
+	// chips and the footer can share its line with prompts.
+	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
+	l.SetShowHelp(false)
 	l.AdditionalShortHelpKeys = extraKeys
 	l.AdditionalFullHelpKeys = extraKeys
 
 	ti := textinput.New()
 	ti.CharLimit = 512
-	m := model{store: s, list: l, input: ti}
+
+	m := model{
+		store:      s,
+		list:       l,
+		input:      ti,
+		projIdx:    -1,
+		tagIdx:     -1,
+		showDetail: true,
+	}
+	if err := m.reload(); err != nil {
+		return model{}, err
+	}
 	if !splashShown {
 		m.splash = true
 		splashShown = true
 	}
 	return m, nil
+}
+
+// reload refreshes the unfiltered snapshot, the project/tag cycles, and the
+// visible items. Call it after anything that can change overlay data.
+func (m *model) reload() error {
+	all, err := m.store.List(store.Filter{})
+	if err != nil {
+		return err
+	}
+	m.all = all
+
+	projSet, tagSet := map[string]bool{}, map[string]bool{}
+	for _, x := range all {
+		if x.Project != "" {
+			projSet[x.Project] = true
+		}
+		for _, t := range x.Tags {
+			tagSet[t] = true
+		}
+	}
+	// Preserve the active filters across the reload where they still exist.
+	prevProj, prevTag := m.activeProject(), m.activeTag()
+	m.projects, m.tags = sortedKeys(projSet), sortedKeys(tagSet)
+	m.projIdx = indexOf(m.projects, prevProj)
+	m.tagIdx = indexOf(m.tags, prevTag)
+
+	return m.applyFilter()
+}
+
+// applyFilter re-queries the store with the active project/tag filters. Going
+// back through store.List rather than filtering in memory reuses the query
+// path the CLI already exercises.
+func (m *model) applyFilter() error {
+	sessions, err := m.store.List(store.Filter{
+		Project: m.activeProject(),
+		Tag:     m.activeTag(),
+	})
+	if err != nil {
+		return err
+	}
+	items := make([]list.Item, len(sessions))
+	for i, x := range sessions {
+		items[i] = item{x}
+	}
+	m.list.SetItems(items)
+	if m.list.Index() >= len(items) {
+		m.list.ResetSelected()
+	}
+	return nil
+}
+
+func (m model) activeProject() string { return at(m.projects, m.projIdx) }
+func (m model) activeTag() string     { return at(m.tags, m.tagIdx) }
+
+// cycle advances an index through [0, n) and then to -1 ("no filter"), so
+// repeatedly pressing the key always returns you to the unfiltered view.
+func cycle(idx, n int) int {
+	if n == 0 {
+		return -1
+	}
+	if idx+1 >= n {
+		return -1
+	}
+	return idx + 1
+}
+
+func at(xs []string, i int) string {
+	if i < 0 || i >= len(xs) {
+		return ""
+	}
+	return xs[i]
+}
+
+func indexOf(xs []string, want string) int {
+	if want == "" {
+		return -1
+	}
+	for i, x := range xs {
+		if x == want {
+			return i
+		}
+	}
+	return -1
+}
+
+func sortedKeys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func extraKeys() []key.Binding {
@@ -155,6 +255,10 @@ func extraKeys() []key.Binding {
 		key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "tags")),
 		key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "project")),
 		key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+		key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "filter project")),
+		key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "filter tag")),
+		key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "clear filters")),
+		key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "detail")),
 	}
 }
 
@@ -169,7 +273,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
-		m.list.SetSize(msg.Width, msg.Height-2)
+		m.resize()
 		return m, nil
 	case splashDoneMsg:
 		m.splash = false
@@ -191,6 +295,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
+}
+
+// detailWidth returns the width of the detail pane, or 0 when it is hidden
+// because the user toggled it off or the terminal is too narrow to split.
+func (m model) detailWidth() int {
+	if !m.showDetail || m.w < detailMinTotalWidth {
+		return 0
+	}
+	w := m.w * 2 / 5
+	return min(max(w, detailMinWidth), detailMaxWidth)
+}
+
+// resize recomputes the list's size from the terminal size and the current
+// detail pane visibility. Both callers — the resize message and the tab
+// toggle — must go through here.
+func (m *model) resize() {
+	if m.w == 0 || m.h == 0 {
+		return
+	}
+	listW := m.w - m.detailWidth()
+	m.list.SetSize(max(listW, 1), max(m.h-chromeHeight, 1))
 }
 
 func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -231,10 +356,35 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.confirmingDelete = true
 		}
 		return m, nil
+	case "P":
+		m.projIdx = cycle(m.projIdx, len(m.projects))
+		return m.refilter(), nil
+	case "T":
+		m.tagIdx = cycle(m.tagIdx, len(m.tags))
+		return m.refilter(), nil
+	case "x":
+		if m.projIdx == -1 && m.tagIdx == -1 {
+			break
+		}
+		m.projIdx, m.tagIdx = -1, -1
+		return m.refilter(), nil
+	case "tab":
+		m.showDetail = !m.showDetail
+		m.resize()
+		return m, nil
 	}
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
+}
+
+// refilter reapplies the project/tag filters, surfacing any error in the
+// status line rather than tearing the browser down.
+func (m model) refilter() model {
+	if err := m.applyFilter(); err != nil {
+		m.status = "error: " + err.Error()
+	}
+	return m
 }
 
 func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -266,6 +416,13 @@ func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.list.RemoveItem(m.list.Index())
+	// Drop it from the unfiltered snapshot too so the header count is honest.
+	for i, x := range m.all {
+		if x.ID == sel.ID {
+			m.all = append(m.all[:i:i], m.all[i+1:]...)
+			break
+		}
+	}
 	m.status = fmt.Sprintf("trashed %q (restore from %s)", sel.DisplayTitle(), m.store.TrashDir())
 	return m, nil
 }
@@ -310,6 +467,17 @@ func (m model) submitInput() (tea.Model, tea.Cmd) {
 		m.status = "error: " + err.Error()
 		return m, nil
 	}
+	// A new project or tag has to enter the P/T cycles, and the session may
+	// no longer match the active filter, so rebuild everything.
+	if kind == inputProject || kind == inputTags {
+		if err := m.reload(); err != nil {
+			m.status = "error: " + err.Error()
+			return m, nil
+		}
+		m.selectByID(sel.ID)
+		m.status = "saved"
+		return m, nil
+	}
 	fresh, err := m.store.Get(sel.ID)
 	if err != nil {
 		m.status = "error: " + err.Error()
@@ -318,6 +486,17 @@ func (m model) submitInput() (tea.Model, tea.Cmd) {
 	cmd := m.list.SetItem(m.list.Index(), item{*fresh})
 	m.status = "saved"
 	return m, cmd
+}
+
+// selectByID moves the cursor back to a session after the list was rebuilt.
+// If the session no longer matches the active filter the cursor stays put.
+func (m *model) selectByID(id string) {
+	for i, li := range m.list.Items() {
+		if it, ok := li.(item); ok && it.s.ID == id {
+			m.list.Select(i)
+			return
+		}
+	}
 }
 
 func (m model) replaceTags(sel store.Session, want []string) error {
@@ -356,17 +535,79 @@ func (m model) View() string {
 	if m.splash {
 		return m.splashView()
 	}
-	var bottom string
+	body := m.list.View()
+	if dw := m.detailWidth(); dw > 0 {
+		detail := ""
+		if sel, ok := m.selected(); ok {
+			detail = renderDetail(sel, dw, max(m.h-chromeHeight, 1))
+		}
+		body = horizontal(body, detail)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, m.headerView(), body, "", m.footerView())
+}
+
+// headerView is the brand mark on the left, active filter chips in the middle,
+// and the session/project counts on the right, separated by a rule.
+func (m model) headerView() string {
+	left := headerMarkStyle.Render("wallfacer")
+	if chips := m.chipsView(); chips != "" {
+		left += "  " + chips
+	}
+
+	projects := 0
+	for _, p := range m.projects {
+		if p != "" {
+			projects++
+		}
+	}
+	right := headerCountStyle.Render(fmt.Sprintf("%s · %s",
+		plural(len(m.all), "session"), plural(projects, "project")))
+
+	// A rule fills whatever is left between them; if nothing is, drop the
+	// counts rather than wrapping.
+	gap := m.w - ansi.StringWidth(left) - ansi.StringWidth(right) - 2
+	if gap < 1 {
+		return ansi.Truncate(left, max(m.w, 1), "…")
+	}
+	return left + " " + headerRuleStyle.Render(strings.Repeat("─", gap)) + " " + right
+}
+
+// chipsView renders the active project/tag filters. They are shown only when
+// set, so the header stays quiet in the common unfiltered case.
+func (m model) chipsView() string {
+	var chips []string
+	if p := m.activeProject(); p != "" {
+		chips = append(chips, chipProjectStyle.Render("◆ "+p))
+	}
+	if t := m.activeTag(); t != "" {
+		chips = append(chips, chipTagStyle.Render("#"+t))
+	}
+	if len(chips) == 0 {
+		return ""
+	}
+	return strings.Join(chips, " ") + statusStyle.Render(" (x to clear)")
+}
+
+// footerView shares one line between the prompts and the help. Prompts win:
+// when you are typing or confirming, that is the only thing worth showing.
+func (m model) footerView() string {
 	switch {
 	case m.kind != inputNone:
-		bottom = m.input.View()
+		return m.input.View()
 	case m.confirmingDelete:
 		sel, _ := m.selected()
-		bottom = promptStyle.Render(fmt.Sprintf("move %q to trash? [y/N]", sel.DisplayTitle()))
+		return promptStyle.Render(fmt.Sprintf("move %q to trash? [y/N]", sel.DisplayTitle()))
 	case m.status != "":
-		bottom = statusStyle.Render(m.status)
+		return statusStyle.Render(ansi.Truncate(m.status, max(m.w, 1), "…"))
 	}
-	return m.list.View() + "\n" + bottom
+	return footerStyle.Render(m.list.Help.View(m.list))
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // splashView centers the launch banner in the terminal.

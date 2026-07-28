@@ -59,12 +59,34 @@ wallfacer search auth
 
 ## The browser
 
-Bare `wallfacer` opens a full-screen session browser:
+Bare `wallfacer` opens a full-screen session browser: a list on the left, and a detail
+pane on the right showing everything `wallfacer show` prints for whatever is highlighted.
+
+```
+┌ wallfacer ─────────────────────── 47 sessions · 6 projects ┐
+│ ● Refactor the sync loop to be   │ Refactor the sync loop   │
+│   ~/proj/wallfacer  2h  ◆core    │                          │
+│   #perf #wip                     │ ◆ core   #perf #wip      │
+│                                  │ ─────────────────────────│
+│ ● Debug the flaky launcher test  │ dir     ~/proj/wallfacer │
+│   ~/proj/wallfacer  1d  ◆core    │ branch  main             │
+│                                  │ agent   claude-code      │
+│ ○ Untitled                       │ created 2026-07-12       │
+│   ~/tmp  3d                      │ size    412 KB           │
+└ / filter  ⏎ resume  n new  ? help ───────────────────────────┘
+```
+
+Every row shows its project, tags, directory, age and agent — the same metadata
+`wallfacer list` prints. Below ~100 columns the detail pane steps aside and the list
+takes the full width.
 
 | Key | Action |
 |-----|--------|
 | `↑/↓` `j/k` | move |
-| `/` | fuzzy filter |
+| `/` | fuzzy filter across titles, projects, dirs and tags |
+| `P` / `T` | cycle the project / tag filter (wraps back to unfiltered) |
+| `x` | clear the project and tag filters |
+| `tab` | show or hide the detail pane |
 | `enter` | resume — the terminal is handed to the agent; the browser returns when you exit |
 | `n` | new session (prompts for a directory) |
 | `r` / `t` / `p` | rename / edit tags / set project |
