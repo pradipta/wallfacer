@@ -114,7 +114,7 @@ takes the full width.
 | `x` | clear the project and tag filters |
 | `tab` | show or hide the detail pane |
 | `enter` | resume — the terminal is handed to the agent; the browser returns when you exit |
-| `n` | new session (prompts for a directory) |
+| `n` | new session (prompts for directory, then title, project, tags) |
 | `r` / `t` / `p` | rename / edit tags / set project |
 | `d` | delete → trash, with confirmation |
 | `?` / `q` | help / quit |

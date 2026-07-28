@@ -29,11 +29,18 @@ const (
 	ActionNew
 )
 
-// Action is what the user chose to do; the caller executes it.
+// Action is what the user chose to do; the caller executes it. The overlay
+// fields mirror the flags on `wallfacer new` so the browser can start a
+// session with the same metadata the CLI can.
 type Action struct {
 	Type    ActionType
 	Session store.Session // for ActionResume
-	Dir     string        // for ActionNew
+
+	// for ActionNew
+	Dir     string
+	Title   string
+	Project string
+	Tags    []string
 }
 
 // Run shows the browser and blocks until the user quits or picks an action.
@@ -66,14 +73,21 @@ const (
 	inputRename
 	inputTags
 	inputProject
+	// The inputNew* kinds form the new-session chain, asked in this order.
 	inputNewDir
+	inputNewTitle
+	inputNewProject
+	inputNewTags
 )
 
 var inputPrompts = map[inputKind]string{
-	inputRename:  "rename: ",
-	inputTags:    "tags (comma-separated, replaces all): ",
-	inputProject: "project (empty to clear): ",
-	inputNewDir:  "new session in dir: ",
+	inputRename:     "rename: ",
+	inputTags:       "tags (comma-separated, replaces all): ",
+	inputProject:    "project (empty to clear): ",
+	inputNewDir:     "new session in dir: ",
+	inputNewTitle:   "title (optional, enter to skip): ",
+	inputNewProject: "project (optional, enter to skip): ",
+	inputNewTags:    "tags (comma-separated, optional): ",
 }
 
 type model struct {
@@ -82,6 +96,8 @@ type model struct {
 	input  textinput.Model
 	kind   inputKind
 	action Action
+	// draft accumulates the new-session answers across the inputNew* chain.
+	draft Action
 	// confirmingDelete is set while the d→y/n prompt is up.
 	confirmingDelete bool
 	status           string
@@ -338,6 +354,7 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "n":
 		wd, _ := os.Getwd()
+		m.draft = Action{Type: ActionNew}
 		return m.openInput(inputNewDir, wd), nil
 	case "r":
 		if hasSel {
@@ -390,6 +407,11 @@ func (m model) refilter() model {
 func (m model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
+		// Esc abandons the whole new-session chain, not just this step.
+		if m.kind >= inputNewDir {
+			m.draft = Action{}
+			m.status = "new session cancelled"
+		}
 		m.kind = inputNone
 		m.input.Blur()
 		return m, nil
@@ -442,12 +464,8 @@ func (m model) submitInput() (tea.Model, tea.Cmd) {
 	m.kind = inputNone
 	m.input.Blur()
 
-	if kind == inputNewDir {
-		if value == "" {
-			return m, nil
-		}
-		m.action = Action{Type: ActionNew, Dir: expandHome(value)}
-		return m, tea.Quit
+	if kind >= inputNewDir {
+		return m.submitNew(kind, value)
 	}
 
 	sel, ok := m.selected()
@@ -486,6 +504,33 @@ func (m model) submitInput() (tea.Model, tea.Cmd) {
 	cmd := m.list.SetItem(m.list.Index(), item{*fresh})
 	m.status = "saved"
 	return m, cmd
+}
+
+// submitNew advances the new-session chain one step, and quits with the
+// assembled action once the last answer is in. The project and tag steps are
+// prefilled from the active filters: if you are looking at one project, a
+// session started from that view almost certainly belongs to it.
+func (m model) submitNew(kind inputKind, value string) (tea.Model, tea.Cmd) {
+	switch kind {
+	case inputNewDir:
+		if value == "" {
+			m.draft = Action{}
+			return m, nil
+		}
+		m.draft.Dir = expandHome(value)
+		return m.openInput(inputNewTitle, ""), nil
+	case inputNewTitle:
+		m.draft.Title = value
+		return m.openInput(inputNewProject, m.activeProject()), nil
+	case inputNewProject:
+		m.draft.Project = value
+		return m.openInput(inputNewTags, m.activeTag()), nil
+	case inputNewTags:
+		m.draft.Tags = splitTags(value)
+		m.action = m.draft
+		return m, tea.Quit
+	}
+	return m, nil
 }
 
 // selectByID moves the cursor back to a session after the list was rebuilt.

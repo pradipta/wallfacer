@@ -75,7 +75,11 @@ func browseLoop() error {
 			}
 		case tui.ActionNew:
 			a, _ := agent.Get("claude-code")
-			res, err := launcher.New(s, a, action.Dir, launcher.Overlay{})
+			res, err := launcher.New(s, a, action.Dir, launcher.Overlay{
+				Title:   action.Title,
+				Project: action.Project,
+				Tags:    action.Tags,
+			})
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "wallfacer:", err)
 				pause()
