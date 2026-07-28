@@ -129,6 +129,9 @@ parse one file's metadata, and provide launch/resume commands. The `claude-code`
 same session-files-on-disk pattern and are natural next targets. Sessions carry an
 `agent_type`, so a mixed index works out of the box.
 
+See **[docs/adding-an-agent.md](docs/adding-an-agent.md)** for a full walkthrough — research
+checklist, adapter skeleton, registration, and testing.
+
 ## Roadmap
 
 - [ ] Full-text search across session *content* (SQLite FTS5)
