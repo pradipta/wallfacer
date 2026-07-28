@@ -10,14 +10,15 @@
 # wallfacer
 
 A terminal session manager for [Claude Code](https://claude.com/claude-code) — see every AI coding
-session you've ever started, then **name, tag, group, search, resume, or delete** them from one place.
+session you've ever started, then **name, tag, group, search, resume, or delete** them, from a
+full-screen browser or straight from the command line.
 
 ![Build Status](https://github.com/pradipta/wallfacer/actions/workflows/build.yml/badge.svg)
 ![Release](https://github.com/pradipta/wallfacer/actions/workflows/release.yml/badge.svg)
 ![GitHub Release](https://img.shields.io/github/v/release/pradipta/wallfacer)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-![wallfacer session browser screenshot](img_1.png)
+![wallfacer session browser screenshot](img.png)
 
 ## Why
 
@@ -48,16 +49,41 @@ Requires Go 1.22+. Pure Go, no CGO — macOS and Linux. Pre-built binaries are o
 [releases page](https://github.com/pradipta/wallfacer/releases); building from source is
 covered in the [development guide](docs/development.md).
 
+## Two ways to use it
+
+wallfacer is one binary with two front ends, and which one you get depends on whether you
+pass a subcommand:
+
+| You type | You get |
+|----------|---------|
+| `wallfacer` | **The TUI** — a full-screen, interactive session browser. Start here. |
+| `wallfacer <command>` | **The CLI** — one-shot subcommands for scripts and muscle memory. |
+
+They are not separate tools and there is nothing to switch between: both read and write the
+same SQLite index, so a session you tag in the browser is immediately findable by
+`wallfacer list --tag`, and vice versa. Anything the TUI can do, a subcommand can do too.
+
+(If stdout isn't a terminal — `wallfacer | less`, or inside a script — the bare command
+prints help instead of opening the browser.)
+
 ## Quick start
 
+Open the browser and work from there:
+
 ```bash
-wallfacer                                  # open the session browser
+wallfacer
+```
+
+Or drive it from the shell:
+
+```bash
 wallfacer new ~/work/api --title "Fix flaky auth tests"
 wallfacer resume "fix flaky auth tests"    # by title or ID prefix
 wallfacer search auth
+wallfacer list --project api --json        # for scripts
 ```
 
-## The browser
+## The TUI — `wallfacer`
 
 Bare `wallfacer` opens a full-screen session browser: a list on the left, and a detail
 pane on the right showing everything `wallfacer show` prints for whatever is highlighted.
@@ -93,11 +119,13 @@ takes the full width.
 | `d` | delete → trash, with confirmation |
 | `?` / `q` | help / quit |
 
-## Commands
+## The CLI — `wallfacer <command>`
+
+Every subcommand is one-shot: it runs, prints, and exits. Same index as the browser.
 
 | Command | What it does |
 |---------|--------------|
-| `wallfacer` | Open the interactive browser |
+| `wallfacer` | *(no subcommand)* Open the interactive browser |
 | `wallfacer new [dir] [--title T] [--project P] [--tag t]` | Start a new session in a directory |
 | `wallfacer resume <ref>` | Reopen a session in its original directory |
 | `wallfacer list [--project P] [--tag T] [--json]` | List sessions, newest first |
