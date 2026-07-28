@@ -7,8 +7,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/pradipta-s/wallfacer/internal/format"
-	"github.com/pradipta-s/wallfacer/internal/store"
+	"github.com/pradipta/wallfacer/internal/format"
+	"github.com/pradipta/wallfacer/internal/store"
 	"github.com/spf13/cobra"
 )
 

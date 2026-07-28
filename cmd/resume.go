@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/pradipta-s/wallfacer/internal/launcher"
+	"github.com/pradipta/wallfacer/internal/launcher"
 	"github.com/spf13/cobra"
 )
 

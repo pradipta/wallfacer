@@ -3,9 +3,9 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/pradipta-s/wallfacer/internal/agent"
-	"github.com/pradipta-s/wallfacer/internal/launcher"
-	"github.com/pradipta-s/wallfacer/internal/store"
+	"github.com/pradipta/wallfacer/internal/agent"
+	"github.com/pradipta/wallfacer/internal/launcher"
+	"github.com/pradipta/wallfacer/internal/store"
 	"github.com/spf13/cobra"
 )
 

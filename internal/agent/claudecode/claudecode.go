@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pradipta-s/wallfacer/internal/agent"
+	"github.com/pradipta/wallfacer/internal/agent"
 )
 
 const (

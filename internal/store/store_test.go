@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pradipta-s/wallfacer/internal/agent"
-	"github.com/pradipta-s/wallfacer/internal/agent/claudecode"
-	"github.com/pradipta-s/wallfacer/internal/store"
+	"github.com/pradipta/wallfacer/internal/agent"
+	"github.com/pradipta/wallfacer/internal/agent/claudecode"
+	"github.com/pradipta/wallfacer/internal/store"
 )
 
 func openTestStore(t *testing.T) *store.Store {

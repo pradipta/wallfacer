@@ -1,6 +1,6 @@
 package main
 
-import "github.com/pradipta-s/wallfacer/cmd"
+import "github.com/pradipta/wallfacer/cmd"
 
 func main() {
 	cmd.Execute()

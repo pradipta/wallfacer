@@ -1,4 +1,4 @@
-module github.com/pradipta-s/wallfacer
+module github.com/pradipta/wallfacer
 
 go 1.26.2
 

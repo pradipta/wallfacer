@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pradipta-s/wallfacer/internal/format"
-	"github.com/pradipta-s/wallfacer/internal/store"
+	"github.com/pradipta/wallfacer/internal/format"
+	"github.com/pradipta/wallfacer/internal/store"
 	"github.com/spf13/cobra"
 )
 

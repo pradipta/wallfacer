@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pradipta-s/wallfacer/internal/agent"
+	"github.com/pradipta/wallfacer/internal/agent"
 )
 
 // SyncResult summarizes what a sync pass did.

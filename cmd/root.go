@@ -5,13 +5,13 @@ import (
 	"os"
 
 	"github.com/mattn/go-isatty"
-	"github.com/pradipta-s/wallfacer/internal/agent"
-	"github.com/pradipta-s/wallfacer/internal/launcher"
-	"github.com/pradipta-s/wallfacer/internal/tui"
+	"github.com/pradipta/wallfacer/internal/agent"
+	"github.com/pradipta/wallfacer/internal/launcher"
+	"github.com/pradipta/wallfacer/internal/tui"
 	"github.com/spf13/cobra"
 )
 
-// Version is set at build time via -ldflags "-X github.com/pradipta-s/wallfacer/cmd.Version=...".
+// Version is set at build time via -ldflags "-X github.com/pradipta/wallfacer/cmd.Version=...".
 var Version = "dev"
 
 var rootCmd = &cobra.Command{

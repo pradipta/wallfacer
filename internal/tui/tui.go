@@ -14,8 +14,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/pradipta-s/wallfacer/internal/format"
-	"github.com/pradipta-s/wallfacer/internal/store"
+	"github.com/pradipta/wallfacer/internal/format"
+	"github.com/pradipta/wallfacer/internal/store"
 )
 
 type ActionType int

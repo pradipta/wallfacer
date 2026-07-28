@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/pradipta-s/wallfacer/internal/agent"
-	"github.com/pradipta-s/wallfacer/internal/store"
+	"github.com/pradipta/wallfacer/internal/agent"
+	"github.com/pradipta/wallfacer/internal/store"
 )
 
 // Overlay is metadata applied to a newly created session after it exits.

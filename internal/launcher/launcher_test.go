@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pradipta-s/wallfacer/internal/agent"
-	"github.com/pradipta-s/wallfacer/internal/launcher"
-	"github.com/pradipta-s/wallfacer/internal/store"
+	"github.com/pradipta/wallfacer/internal/agent"
+	"github.com/pradipta/wallfacer/internal/launcher"
+	"github.com/pradipta/wallfacer/internal/store"
 )
 
 // fakeAdapter simulates an agent CLI: "launching" writes a session file into
