@@ -8,22 +8,7 @@ session you've ever started, then **name, tag, group, search, resume, or delete*
 ![GitHub Release](https://img.shields.io/github/v/release/pradipta/wallfacer)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-```
-$ wallfacer
-
-  wallfacer — sessions
-
-  ▌ Fix flaky auth tests  ◆ api-cleanup  #golang #tests
-  ▌ ~/work/api · 2h ago · claude-code
-
-    Session manager brainstorm  #cli
-    ~/projects/wallfacer · 1d ago · claude-code
-
-    Explain to me this repository…
-    ~/projects/NullAway · 4d ago · claude-code
-
-  / filter · enter resume · n new · r rename · t tags · p project · d delete · q quit
-```
+![wallfacer session browser screenshot](img_1.png)
 
 ## Why
 
@@ -42,7 +27,7 @@ titles, tags, and projects in its own local SQLite database.
 - **Launch & resume** — start new sessions or jump back into old ones, from anywhere
 - **Safe deletes** — `rm` moves to trash; only `--purge` is permanent
 - **TUI and CLI** — a full-screen browser for humans, subcommands + `--json` for scripts
-- **Extensible** — agents are pluggable adapters; OpenCode and Codex are natural next targets
+- **Extensible** — agents are pluggable adapters; Codex, opencode, Cursor CLI, and kiro-cli are on the roadmap
 
 ## Install
 
@@ -104,8 +89,17 @@ working directory, timestamps, and first prompt (the automatic title). Your meta
 SQLite at `~/.local/share/wallfacer/` — delete it and you lose only the overlay, never a
 conversation. Sync is incremental, so it stays fast with hundreds of sessions.
 
-Other agents (OpenCode, Codex, …) plug in through a small adapter interface — see
+Other agents plug in through a small adapter interface — see
 [docs/adding-an-agent.md](docs/adding-an-agent.md).
+
+## Roadmap
+
+- [ ] Adapters for more agents: [Codex](https://github.com/openai/codex),
+      [opencode](https://github.com/sst/opencode), Cursor CLI, kiro-cli
+- [ ] Full-text search across session *content* (SQLite FTS5)
+- [ ] `wallfacer restore` (un-trash from the CLI)
+- [ ] Export a session transcript to Markdown
+- [ ] Stats (sessions per project/week, disk usage)
 
 ## Contributing
 
