@@ -118,3 +118,30 @@ func TestAgentFilterSurvivesReload(t *testing.T) {
 		t.Errorf("agent filter after reload = %q, want %q", got, want)
 	}
 }
+func TestFilterValueIncludesAgentType(t *testing.T) {
+	m := filterModel(t)
+
+	var got string
+	for _, li := range m.list.Items() {
+		it := li.(item)
+		if it.s.ID != "bbb-222" {
+			continue
+		}
+		got = it.FilterValue()
+		if !strings.HasPrefix(got, it.s.DisplayTitle()) {
+			t.Fatalf("filter value should start with the title %q, got %q", it.s.DisplayTitle(), got)
+		}
+		fields := strings.Fields(got)
+		if len(fields) == 0 || fields[len(fields)-1] != it.s.AgentType {
+			t.Fatalf("filter value should append agent type %q at the end, got %q", it.s.AgentType, got)
+		}
+		break
+	}
+
+	if got == "" {
+		t.Fatal("did not find the kiro-cli fixture session")
+	}
+	if !strings.Contains(got, "kiro-cli") {
+		t.Fatalf("filter value should include agent type, got %q", got)
+	}
+}

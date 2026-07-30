@@ -105,7 +105,7 @@ takes the full width.
 | Key | Action |
 |-----|--------|
 | `↑/↓` `j/k` | move |
-| `/` | fuzzy filter across titles, projects, dirs and tags |
+| `/` | fuzzy filter across titles, projects, dirs, tags and agent names |
 | `P` / `T` / `A` | cycle the project / tag / agent filter (wraps back to unfiltered) |
 | `x` | clear the project, tag and agent filters |
 | `tab` | show or hide the detail pane |

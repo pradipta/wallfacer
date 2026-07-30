@@ -74,7 +74,7 @@ func Run(s *store.Store, awaitNotice func() string) (Action, error) {
 type item struct{ s store.Session }
 
 func (i item) FilterValue() string {
-	return strings.Join(append([]string{i.s.DisplayTitle(), i.s.Project, i.s.Dir}, i.s.Tags...), " ")
+	return strings.Join(append([]string{i.s.DisplayTitle(), i.s.Project, i.s.Dir}, append(i.s.Tags, i.s.AgentType)...), " ")
 }
 
 type inputKind int
