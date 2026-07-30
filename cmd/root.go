@@ -120,10 +120,10 @@ func pause() {
 }
 
 func Execute() {
-	// The check runs in the background while the command does its work, and is
-	// collected afterwards — either by browseLoop (which shows it in the TUI)
-	// or by reportUpdate, on stderr. A failing command reports only its error:
-	// an upgrade hint on top of a failure is noise.
+	// Resolve the cached update answer up front — a file read, no network — so
+	// any command can report it on the way out. Looking for a *newer* answer is
+	// browseLoop's job; see internal/update. A failing command reports only its
+	// error: an upgrade hint on top of a failure is noise.
 	updateCheck = update.Start(update.Config{
 		Current:  resolveVersion(),
 		CacheDir: cacheDir(),
@@ -135,8 +135,9 @@ func Execute() {
 	reportUpdate()
 }
 
-// updateCheck is the in-flight release check for this process. It is always
-// non-nil by the time any command runs, and yields a notice at most once.
+// updateCheck is this process's update check: cached answer resolved at
+// startup, refreshed only by the browser. Always non-nil by the time any
+// command runs, and yields a notice at most once.
 var updateCheck *update.Check
 
 // awaitUpdateNotice is handed to the browser, which calls it from a Bubble Tea
