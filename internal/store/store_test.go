@@ -109,6 +109,52 @@ func TestListFiltersAndSearch(t *testing.T) {
 	}
 }
 
+func TestSearchAgentType(t *testing.T) {
+	s := openTestStore(t)
+
+	a := sampleSession("aaa-111")
+	a.AgentType = "claude-code"
+	a.AutoTitle = "do the thing"
+	a.FirstPrompt = "do the thing"
+	a.Dir = "/tmp/test"
+
+	b := sampleSession("bbb-222")
+	b.AgentType = "kiro-cli"
+	b.AutoTitle = "some other task"
+	b.FirstPrompt = "some other task"
+	b.Dir = "/tmp/other"
+
+	for _, x := range []store.Session{a, b} {
+		if err := s.Upsert(x); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := s.List(store.Filter{Query: "claude-code"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "aaa-111" {
+		t.Errorf("claude-code search: got %d items, want aaa-111: %v", len(got), got)
+	}
+
+	got, err = s.List(store.Filter{Query: "kiro-cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "bbb-222" {
+		t.Errorf("kiro-cli search: got %d items, want bbb-222: %v", len(got), got)
+	}
+
+	got, err = s.List(store.Filter{Query: "nonexistent-agent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("nonexistent search: got %d items, want 0", len(got))
+	}
+}
+
 func TestResolve(t *testing.T) {
 	s := openTestStore(t)
 	s.Upsert(sampleSession("abc-123"))
