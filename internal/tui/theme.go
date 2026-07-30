@@ -30,8 +30,11 @@ var (
 	headerCountStyle = lipgloss.NewStyle().Foreground(colDim)
 	headerRuleStyle  = lipgloss.NewStyle().Foreground(colBorder)
 	footerStyle      = lipgloss.NewStyle().Foreground(colDim)
-	helpKeyStyle     = lipgloss.NewStyle().Foreground(colTitle)
-	helpDescStyle    = lipgloss.NewStyle().Foreground(colDim)
+	// noticeStyle is the "update available" footer hint: warm enough to catch
+	// the eye on the first frame, not loud enough to look like an error.
+	noticeStyle   = lipgloss.NewStyle().Foreground(colWarn).Bold(true)
+	helpKeyStyle  = lipgloss.NewStyle().Foreground(colTitle)
+	helpDescStyle = lipgloss.NewStyle().Foreground(colDim)
 
 	// Filter chips in the header.
 	chipProjectStyle = lipgloss.NewStyle().Foreground(colProject).Bold(true)

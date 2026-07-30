@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"runtime/debug"
 
@@ -9,7 +10,9 @@ import (
 	"github.com/pradipta/wallfacer/internal/agent"
 	"github.com/pradipta/wallfacer/internal/banner"
 	"github.com/pradipta/wallfacer/internal/launcher"
+	"github.com/pradipta/wallfacer/internal/store"
 	"github.com/pradipta/wallfacer/internal/tui"
+	"github.com/pradipta/wallfacer/internal/update"
 	"github.com/spf13/cobra"
 )
 
@@ -57,11 +60,16 @@ func browseLoop() error {
 	}
 	defer s.Close()
 
+	// The browser is the one front end that outlives a GitHub round trip, so it
+	// does the looking — for its own footer, and to leave a warm cache behind
+	// for one-shot subcommands.
+	updateCheck.Refresh()
+
 	for {
 		if _, err := s.Sync(); err != nil {
 			return err
 		}
-		action, err := tui.Run(s)
+		action, err := tui.Run(s, awaitUpdateNotice)
 		if err != nil {
 			return err
 		}
@@ -112,8 +120,55 @@ func pause() {
 }
 
 func Execute() {
+	// Resolve the cached update answer up front — a file read, no network — so
+	// any command can report it on the way out. Looking for a *newer* answer is
+	// browseLoop's job; see internal/update. A failing command reports only its
+	// error: an upgrade hint on top of a failure is noise.
+	updateCheck = update.Start(update.Config{
+		Current:  resolveVersion(),
+		CacheDir: cacheDir(),
+	})
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "wallfacer:", err)
 		os.Exit(1)
 	}
+	reportUpdate()
+}
+
+// updateCheck is this process's update check: cached answer resolved at
+// startup, refreshed only by the browser. Always non-nil by the time any
+// command runs, and yields a notice at most once.
+var updateCheck *update.Check
+
+// awaitUpdateNotice is handed to the browser, which calls it from a Bubble Tea
+// command — so blocking here delays nothing. The notice is yielded once, so if
+// the browser shows it, reportUpdate stays quiet, and vice versa. Later browser
+// reopens (after an agent session) get an empty string.
+func awaitUpdateNotice() string { return updateCheck.Await().Line() }
+
+// reportUpdate prints the upgrade notice to stderr, so it never pollutes
+// `--json` output or a piped listing. It stays quiet when stderr is not a
+// terminal (scripts, CI), when the TUI already took the notice, and when the
+// check has not finished — Result never waits, and an answer that lands too
+// late is picked up from the cache by the next command.
+func reportUpdate() {
+	printUpdateNotice(os.Stderr, isatty.IsTerminal(os.Stderr.Fd()), updateCheck.Result())
+}
+
+// printUpdateNotice is the testable half of reportUpdate.
+func printUpdateNotice(w io.Writer, isTTY bool, n *update.Notice) {
+	if !isTTY || n == nil {
+		return
+	}
+	fmt.Fprintln(w, "\n"+n.Block())
+}
+
+// cacheDir is where the update check caches its answer: wallfacer's data dir,
+// or "" (meaning "don't cache") if it cannot be determined.
+func cacheDir() string {
+	dir, err := store.DataDir()
+	if err != nil {
+		return ""
+	}
+	return dir
 }

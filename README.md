@@ -157,6 +157,14 @@ directory, and Cursor CLI splits a chat between its own directory and a transcri
 the project — the whole set travels together, so a deleted session doesn't linger in the
 agent's own session picker.
 
+Once a day the browser asks GitHub whether a newer release exists and, if so, mentions it
+once on its footer; subcommands repeat that cached answer on stderr, so it never lands in
+`--json` output or a pipe. Nothing ever waits for it: the lookup belongs to the browser
+because it is the front end that outlives a network round trip, and a subcommand only reads
+the cached answer — a file read, no network — so an update that lands late simply shows up
+the next time you run wallfacer. The cache lives in the data dir, and
+`WALLFACER_NO_UPDATE_CHECK=1` turns the whole thing off.
+
 Other agents plug in through a small adapter interface — see
 [docs/adding-an-agent.md](docs/adding-an-agent.md).
 
