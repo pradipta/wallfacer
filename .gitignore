@@ -1,5 +1,6 @@
 /wallfacer
 dist/
+HomebrewFormula/.*.tmp
 plan.md
 *.db
 .DS_Store

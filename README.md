@@ -49,12 +49,24 @@ your titles, tags, and projects in its own local SQLite database.
 
 ## Install
 
+With Homebrew, on macOS or Linux:
+
+```bash
+brew tap pradipta/wallfacer https://github.com/pradipta/wallfacer
+brew install pradipta/wallfacer/wallfacer
+```
+
+The formula lives in this repository instead of a separate `homebrew-wallfacer`
+tap, which is the only reason the tap needs its URL spelled out. After that,
+`brew upgrade wallfacer` works as usual.
+
+Or with Go:
+
 ```bash
 go install github.com/pradipta/wallfacer@latest
 ```
 
-Requires Go 1.22+. Pure Go, no CGO — macOS and Linux. Pre-built binaries are on the
-[releases page](https://github.com/pradipta/wallfacer/releases); building from source is
+Requires Go 1.22+. Pre-built binaries are on the [releases page](https://github.com/pradipta/wallfacer/releases); building from source is
 covered in the [development guide](docs/development.md).
 
 ## Two ways to use it

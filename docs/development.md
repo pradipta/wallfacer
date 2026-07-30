@@ -19,7 +19,8 @@ make test       # unit tests (adapter parsing, store, sync, launcher, trash)
 make vet        # go vet
 make fmt        # gofmt
 make install    # go install into $GOBIN
-make release    # cross-compile darwin/linux × amd64/arm64 into dist/
+make release    # cross-compile darwin/linux × amd64/arm64 into dist/ as tarballs
+make brew-formula  # rewrite HomebrewFormula/ from the archives in dist/
 make clean
 ```
 
@@ -40,6 +41,8 @@ wallfacer/
 │   ├── tui/              # Bubble Tea session browser
 │   ├── update/           # once-a-day GitHub release check + notice
 │   └── format/           # shared display helpers (titles, relative times)
+├── HomebrewFormula/      # the Homebrew tap; generated, see Releasing
+├── scripts/              # release-time helpers
 └── docs/
 ```
 
@@ -126,16 +129,101 @@ git tag v0.1.0-rc.1 && git push origin v0.1.0-rc.1
 ```
 
 The workflow runs vet + tests (a failure aborts the release), builds the four
-platform binaries via `make release`, and publishes them with auto-generated
-notes. Tags created in GitHub's web UI (Releases → *Draft a new release*)
-trigger it the same way.
+platform tarballs plus `checksums.txt` via `make release`, publishes them with
+auto-generated notes, and then — for stable tags only — regenerates
+`HomebrewFormula/wallfacer.rb` and commits it back to `main`. Tags created in
+GitHub's web UI (Releases → *Draft a new release*) trigger it the same way.
 
 Rules of thumb:
 
 - Any tag containing `-` (`v0.1.0-rc.1`, `v0.1.0-beta.2`) is treated as a
   pre-release. `go install …@latest` skips those too — testers opt in with
-  `@v0.1.0-rc.1`.
+  `@v0.1.0-rc.1`. So does Homebrew: the formula is only rewritten for stable
+  tags, so `brew install` never hands anyone an RC.
 - Never reuse or move a tag: the Go module proxy caches versions forever.
+
+## The Homebrew tap
+
+There is no `homebrew-wallfacer` repository. `HomebrewFormula/` in this repo *is*
+the tap — Homebrew looks for formulae in `Formula/`, `HomebrewFormula/` or the
+repository root, and the two-argument `brew tap <user>/<name> <url>` form drops
+the usual `homebrew-` naming requirement:
+
+```bash
+brew tap pradipta/wallfacer https://github.com/pradipta/wallfacer
+brew install pradipta/wallfacer/wallfacer
+```
+
+The formula is generated, never edited by hand, because Homebrew pins every
+download by sha256 and those checksums don't exist until the release binaries
+are built. That is also why the release workflow has to commit back to `main`
+after publishing: at tag time there is nothing to hash yet.
+
+### Testing the tap without cutting a release
+
+Two halves, both worth rehearsing after any change to `make release`, the
+generator, or the release workflow. Neither one touches GitHub.
+
+**Install the formula for real.** Serve a local build over HTTP and generate a
+formula pointing at it, in a scratch git repo standing in for the tap. Build and
+generate with the same `VERSION`, or `brew test` will fail comparing the
+formula's version against what the binary prints:
+
+```bash
+export HOMEBREW_NO_AUTOREMOVE=1        # see the note below — this one matters
+make release VERSION=v9.9.9
+python3 -m http.server 8611 --directory dist --bind 127.0.0.1 &
+
+TAP=/tmp/wf-tap; rm -rf $TAP; mkdir -p $TAP/HomebrewFormula; git init -q $TAP
+BREW_BASE_URL=http://127.0.0.1:8611 scripts/brew-formula.sh v9.9.9 \
+  > $TAP/HomebrewFormula/wallfacer.rb
+git -C $TAP add -A
+git -C $TAP -c user.name=lab -c user.email=lab@lab commit -qm formula
+
+brew tap you/wallfacer-lab $TAP     # the two-argument form: any git URL, any name
+brew style   you/wallfacer-lab/wallfacer
+brew install you/wallfacer-lab/wallfacer
+brew test    you/wallfacer-lab/wallfacer
+wallfacer --version
+
+brew uninstall you/wallfacer-lab/wallfacer && brew untap you/wallfacer-lab
+kill %1; brew developer off         # brew test switches developer mode on
+```
+
+**Rehearse the release job's commit back to main**, against a bare repo standing
+in for GitHub, running the workflow step verbatim rather than a paraphrase of it:
+
+```bash
+LAB=/tmp/wf-lab; rm -rf $LAB; mkdir -p $LAB
+git init -q --bare $LAB/origin.git
+git clone -q . $LAB/work
+cd $LAB/work && git remote set-url origin $LAB/origin.git
+git push -q origin HEAD:main
+git tag v9.9.9 && git checkout -q v9.9.9      # CI runs detached at the tag
+make release
+
+ruby -ryaml -e 'puts YAML.load_file(".github/workflows/release.yml")["jobs"]["release"]["steps"].last["run"]' \
+  | sed 's/${{ github.ref_name }}/v9.9.9/g' | bash
+
+git -C $LAB/origin.git show main:HomebrewFormula/wallfacer.rb | head
+```
+
+Run that step twice: the second run must print `formula already current` and
+leave `origin/main` alone. Then tag a second version and confirm the formula's
+version, URLs and checksums all move. The first release is the interesting case —
+the formula is untracked then, which is why the step stages before it checks for
+changes.
+
+Two things that will surprise you:
+
+- **`brew uninstall` autoremoves.** Homebrew 6 removed an unrelated formula it
+  considered unneeded when the test formula was uninstalled. Export
+  `HOMEBREW_NO_AUTOREMOVE=1` before any of this.
+- **"Tapped 10 commands and 1 formula."** Homebrew reads a `cmd/` directory at a
+  tap's root as external commands, and this repo has one — its Go entrypoints.
+  Cosmetic: none of them are invocable as `brew <something>`, and tap trust means
+  a tap's commands are not loaded unless you trust the whole tap. It is the price
+  of the tap living in the source repo.
 
 ## Contributing
 

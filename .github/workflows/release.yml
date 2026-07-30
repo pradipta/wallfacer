@@ -38,3 +38,27 @@ jobs:
           # Anything with a semver pre-release suffix (contains "-") is an RC.
           prerelease: ${{ contains(github.ref_name, '-') }}
           make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
+
+      # The Homebrew formula pins each archive by sha256, so it can only be
+      # written once the release exists — hence a commit back to main rather than
+      # a file kept up to date by hand. Stable tags only: an RC must never become
+      # what `brew install` hands people.
+      - name: Update Homebrew formula
+        if: ${{ !contains(github.ref_name, '-') }}
+        run: |
+          set -eu
+          git fetch origin main
+          git checkout -B main origin/main   # dist/ is gitignored, so it survives
+          make brew-formula VERSION=${{ github.ref_name }}
+          # Stage first: on the very first release the formula is untracked, and
+          # plain `git diff` does not see untracked files — it would report
+          # "nothing changed" and silently skip the commit.
+          git add HomebrewFormula
+          if git diff --cached --quiet -- HomebrewFormula; then
+            echo "formula already current"
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -m "brew: wallfacer ${{ github.ref_name }} [skip ci]"
+          git push origin main
