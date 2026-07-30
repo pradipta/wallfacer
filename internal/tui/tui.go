@@ -50,11 +50,14 @@ type Action struct {
 }
 
 // Run shows the browser and blocks until the user quits or picks an action.
-func Run(s *store.Store) (Action, error) {
+// notice, when non-empty, is a one-line message shown on the footer until the
+// user's first action replaces it — used for the "update available" hint.
+func Run(s *store.Store, notice string) (Action, error) {
 	m, err := newModel(s)
 	if err != nil {
 		return Action{}, err
 	}
+	m.notice = notice
 	final, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	if err != nil {
 		return Action{}, err
@@ -112,6 +115,9 @@ type model struct {
 	agentChoices  []string
 	agentChoice   int
 	status        string
+	// notice is the "update available" hint. It owns the footer until the
+	// first keypress, then yields to the help line for good.
+	notice string
 	// splash is true while the launch banner is showing; w/h track the
 	// terminal size so the banner can be centered.
 	splash bool
@@ -399,6 +405,7 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	m.status = ""
+	m.notice = ""
 	sel, hasSel := m.selected()
 	switch msg.String() {
 	case "ctrl+c", "q":
@@ -783,9 +790,17 @@ func (m model) footerView() string {
 		return promptStyle.Render(fmt.Sprintf("move %q to trash? [y/N]", sel.DisplayTitle()))
 	case m.status != "":
 		return statusStyle.Render(ansi.Truncate(m.status, max(m.w, 1), "…"))
+	case m.notice != "":
+		return noticeStyle.Render(ansi.Truncate(
+			m.notice+"  ·  "+updateHint, max(m.w, 1), "…"))
 	}
 	return footerStyle.Render(m.list.Help.View(m.list))
 }
+
+// updateHint tells the user where to get the new version. It shares the footer
+// line with the notice itself, and is the first thing truncated away on narrow
+// terminals.
+const updateHint = "github.com/pradipta/wallfacer/releases"
 
 func plural(n int, noun string) string {
 	if n == 1 {

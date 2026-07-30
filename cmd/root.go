@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"runtime/debug"
 
@@ -9,7 +10,9 @@ import (
 	"github.com/pradipta/wallfacer/internal/agent"
 	"github.com/pradipta/wallfacer/internal/banner"
 	"github.com/pradipta/wallfacer/internal/launcher"
+	"github.com/pradipta/wallfacer/internal/store"
 	"github.com/pradipta/wallfacer/internal/tui"
+	"github.com/pradipta/wallfacer/internal/update"
 	"github.com/spf13/cobra"
 )
 
@@ -57,14 +60,19 @@ func browseLoop() error {
 	}
 	defer s.Close()
 
+	// Collected once: the browser shows the notice on its footer, and taking
+	// it here is what stops Execute from also printing it to stderr.
+	notice := updateCheck.Result().Line()
+
 	for {
 		if _, err := s.Sync(); err != nil {
 			return err
 		}
-		action, err := tui.Run(s)
+		action, err := tui.Run(s, notice)
 		if err != nil {
 			return err
 		}
+		notice = "" // shown once per process, not after every agent session
 		switch action.Type {
 		case tui.ActionQuit:
 			return nil
@@ -112,8 +120,46 @@ func pause() {
 }
 
 func Execute() {
+	// The check runs in the background while the command does its work, and is
+	// collected afterwards — either by browseLoop (which shows it in the TUI)
+	// or by reportUpdate, on stderr. A failing command reports only its error:
+	// an upgrade hint on top of a failure is noise.
+	updateCheck = update.Start(update.Config{
+		Current:  resolveVersion(),
+		CacheDir: cacheDir(),
+	})
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "wallfacer:", err)
 		os.Exit(1)
 	}
+	reportUpdate()
+}
+
+// updateCheck is the in-flight release check for this process. It is always
+// non-nil by the time any command runs, and yields a notice at most once.
+var updateCheck *update.Check
+
+// reportUpdate prints the upgrade notice to stderr, so it never pollutes
+// `--json` output or a piped listing. It stays quiet when stderr is not a
+// terminal (scripts, CI) and when the TUI already took the notice.
+func reportUpdate() {
+	printUpdateNotice(os.Stderr, isatty.IsTerminal(os.Stderr.Fd()), updateCheck.Result())
+}
+
+// printUpdateNotice is the testable half of reportUpdate.
+func printUpdateNotice(w io.Writer, isTTY bool, n *update.Notice) {
+	if !isTTY || n == nil {
+		return
+	}
+	fmt.Fprintln(w, "\n"+n.Block())
+}
+
+// cacheDir is where the update check caches its answer: wallfacer's data dir,
+// or "" (meaning "don't cache") if it cannot be determined.
+func cacheDir() string {
+	dir, err := store.DataDir()
+	if err != nil {
+		return ""
+	}
+	return dir
 }

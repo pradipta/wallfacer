@@ -157,6 +157,12 @@ directory, and Cursor CLI splits a chat between its own directory and a transcri
 the project — the whole set travels together, so a deleted session doesn't linger in the
 agent's own session picker.
 
+Once a day, wallfacer also asks GitHub whether a newer release exists and, if so, mentions it
+once — on the browser's footer, or on stderr after a subcommand, so it never lands in
+`--json` output or a pipe. The answer is cached in the data dir, the check runs in the
+background and never blocks or fails a command, and `WALLFACER_NO_UPDATE_CHECK=1` turns it off
+entirely.
+
 Other agents plug in through a small adapter interface — see
 [docs/adding-an-agent.md](docs/adding-an-agent.md).
 

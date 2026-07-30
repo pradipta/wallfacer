@@ -38,6 +38,7 @@ wallfacer/
 │   ├── store/            # SQLite index, incremental sync, trash
 │   ├── launcher/         # exec the agent with inherited stdio, post-exit sync
 │   ├── tui/              # Bubble Tea session browser
+│   ├── update/           # once-a-day GitHub release check + notice
 │   └── format/           # shared display helpers (titles, relative times)
 └── docs/
 ```
@@ -61,6 +62,39 @@ Key design points:
 - For end-to-end testing against real data, `make build` and run `./wallfacer`
   directly; it only ever writes to its own data dir (and `trash/` within it).
 - `wallfacer rm` moves files to `<data-dir>/trash/`; only `--purge` deletes.
+
+## Testing the update notice
+
+`internal/update` is covered by unit tests driving an `httptest` server (cache
+hits and expiry, rate limits, malformed JSON, pre-release payloads, unreachable
+hosts, the grace period, semver comparison); `cmd` covers the stderr/TTY gating
+and `internal/tui` the footer. For a manual smoke test, build a binary that
+claims to be an old release — the check is skipped for dev builds, so a plain
+`make build` never shows a notice:
+
+```bash
+go build -ldflags "-X $(go list -m)/cmd.Version=v0.0.1" -o /tmp/wallfacer-old .
+WALLFACER_DATA_DIR=/tmp/wallfacer-old-data WALLFACER_UPDATE_INTERVAL=0 \
+  /tmp/wallfacer-old sync    # the CLI form, on stderr
+WALLFACER_DATA_DIR=/tmp/wallfacer-old-data WALLFACER_UPDATE_INTERVAL=0 \
+  /tmp/wallfacer-old         # the footer form, in the browser
+```
+
+The scratch `WALLFACER_DATA_DIR` keeps your real index and cache out of it, and
+`WALLFACER_UPDATE_INTERVAL=0` defeats the 24h cache so every run re-checks. The
+notice is suppressed when stderr is not a terminal, so piping the run through
+`grep` or `tee` hides it — run it directly.
+
+| Variable | Effect |
+|----------|--------|
+| `WALLFACER_NO_UPDATE_CHECK=1` | Turn the check off entirely |
+| `WALLFACER_UPDATE_INTERVAL=0` | Ignore the 24h cache and fetch every run |
+| `WALLFACER_UPDATE_API=http://…` | Point at something other than `api.github.com` |
+
+That last one is for working offline: anything answering
+`GET /repos/pradipta/wallfacer/releases/latest` with
+`{"tag_name": "v9.9.9", "html_url": "…"}` will do, including
+`python3 -m http.server` over a matching directory tree.
 
 ## Releasing
 
