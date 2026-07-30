@@ -9,7 +9,7 @@ import (
 // The registry is what sync, the TUI picker and --agent all read, so the set
 // of registered adapters is worth asserting directly.
 func TestRegisteredAdapters(t *testing.T) {
-	want := []string{"claude-code", "cursor-agent", "kiro-cli"}
+	want := []string{"claude-code", "codex", "cursor-agent", "kiro-cli"}
 	all := agent.All()
 	if len(all) != len(want) {
 		t.Fatalf("registered %d adapters, want %d", len(all), len(want))
