@@ -58,7 +58,8 @@ var newCmd = &cobra.Command{
 }
 
 func init() {
-	newCmd.Flags().StringVar(&newFlags.agent, "agent", defaultAgentType, "agent type to launch")
+	newCmd.Flags().StringVar(&newFlags.agent, "agent", defaultAgentType,
+		"agent type to launch (claude-code, cursor-agent, kiro-cli)")
 	newCmd.Flags().StringVar(&newFlags.title, "title", "", "name the session up front")
 	newCmd.Flags().StringVar(&newFlags.project, "project", "", "assign the session to a project")
 	newCmd.Flags().StringSliceVar(&newFlags.tags, "tag", nil, "tag(s) for the session (repeatable)")

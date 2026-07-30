@@ -164,6 +164,42 @@ func TestStartNewSessionOpensPickerForSeveralAgents(t *testing.T) {
 	}
 }
 
+// With three adapters registered the picker still preselects the default, and
+// its digit shortcuts and wrap-around track the longer list.
+func TestAgentChooserWithThreeAgents(t *testing.T) {
+	withAgents(t, "claude-code", "cursor-agent", "kiro-cli")
+
+	m := newChainModel()
+	m.draft = Action{Type: ActionNew}
+	m = m.startNewSession()
+
+	if len(m.agentChoices) != 3 {
+		t.Fatalf("agentChoices = %q, want all three adapters", m.agentChoices)
+	}
+	if got := m.agentChoices[m.agentChoice]; got != "claude-code" {
+		t.Errorf("preselected %q, want the default agent", got)
+	}
+
+	if got := press(t, m, "2").draft.Agent; got != "cursor-agent" {
+		t.Errorf("digit 2 chose %q, want cursor-agent", got)
+	}
+	if got := press(t, m, "3").draft.Agent; got != "kiro-cli" {
+		t.Errorf("digit 3 chose %q, want kiro-cli", got)
+	}
+
+	back := press(t, m, "left")
+	if got := back.agentChoices[back.agentChoice]; got != "kiro-cli" {
+		t.Errorf("left should wrap to the last of three, got %q", got)
+	}
+	back.w = 100
+	view := back.footerView()
+	for _, want := range []string{"claude-code", "cursor-agent", "kiro-cli"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("footer %q is missing %s", view, want)
+		}
+	}
+}
+
 func TestNewChainCarriesAgentThrough(t *testing.T) {
 	m := chooserModel("claude-code", "kiro-cli")
 	m = press(t, m, "2")

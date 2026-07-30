@@ -9,8 +9,9 @@
 
 # wallfacer
 
-A terminal session manager for [Claude Code](https://claude.com/claude-code) and
-[Kiro CLI](https://kiro.dev/docs/cli/) — see every AI coding session you've ever started, then
+A terminal session manager for [Claude Code](https://claude.com/claude-code),
+[Cursor CLI](https://docs.cursor.com/en/cli/overview) and [Kiro CLI](https://kiro.dev/docs/cli/) —
+see every AI coding session you've ever started, then
 **name, tag, group, search, resume, or delete** them, from a full-screen browser or straight
 from the command line.
 
@@ -25,7 +26,8 @@ from the command line.
 
 Claude Code stores every conversation as an untitled JSONL file under `~/.claude/projects/`,
 keyed by whatever directory you were in. Kiro CLI does much the same in a single flat
-`~/.kiro/sessions/cli/` folder. After a few weeks you have dozens of transcripts, across two
+`~/.kiro/sessions/cli/` folder, and Cursor CLI buries each chat in a hash-named directory
+under `~/.cursor/chats/`. After a few weeks you have dozens of transcripts, across three
 agents, that you can't tell apart and no way to find the one you need.
 
 wallfacer indexes them all — **read-only, it never touches the agents' files** — and keeps
@@ -37,11 +39,11 @@ your titles, tags, and projects in its own local SQLite database.
 - **Organize** — rename sessions, tag them, group them into projects
 - **Search** — across titles, first prompts, directories, projects, and tags
 - **Launch & resume** — start new sessions or jump back into old ones, from anywhere
-- **Multi-agent** — Claude Code and Kiro CLI side by side; pick the agent when you start a
-  session, filter by it afterwards
+- **Multi-agent** — Claude Code, Cursor CLI and Kiro CLI side by side; pick the agent when you
+  start a session, filter by it afterwards
 - **Safe deletes** — `rm` moves to trash; only `--purge` is permanent
 - **TUI and CLI** — a full-screen browser for humans, subcommands + `--json` for scripts
-- **Extensible** — agents are pluggable adapters; Codex, opencode and Cursor CLI are on the roadmap
+- **Extensible** — agents are pluggable adapters; Codex and opencode are on the roadmap
 
 ## Install
 
@@ -139,26 +141,28 @@ picked up automatically; there's no import step.
 
 ## How it works
 
-wallfacer scans `~/.claude/projects/` and `~/.kiro/sessions/cli/`, reading just the head of
-each session file for its working directory, timestamps, and first prompt (the automatic
-title). Both agents' listings carry the agent type, so `wallfacer list` shows an `AGENT`
-column and `--agent` narrows to one. Your metadata lives in SQLite at
+wallfacer scans `~/.claude/projects/`, `~/.cursor/chats/` and `~/.kiro/sessions/cli/`, reading
+just the head of each session file for its working directory, timestamps, and first prompt (the
+automatic title). Every agent's listing carries the agent type, so `wallfacer list` shows an
+`AGENT` column and `--agent` narrows to one. Your metadata lives in SQLite at
 `~/.local/share/wallfacer/` — delete it and you lose only the overlay, never a conversation.
 Sync is incremental, so it stays fast with hundreds of sessions.
 
 `rm` moves a session to wallfacer's trash. For agents that spread one session over several
 files — Kiro CLI writes a transcript plus a metadata sidecar, prompt history and a scratch
-directory — the whole set travels together, so a deleted session doesn't linger in the agent's
-own session picker.
+directory, and Cursor CLI splits a chat between its own directory and a transcript filed under
+the project — the whole set travels together, so a deleted session doesn't linger in the
+agent's own session picker.
 
 Other agents plug in through a small adapter interface — see
 [docs/adding-an-agent.md](docs/adding-an-agent.md).
 
 ## Roadmap
 
-- [x] Adapters for Claude Code and [Kiro CLI](https://kiro.dev/docs/cli/)
+- [x] Adapters for Claude Code, [Cursor CLI](https://docs.cursor.com/en/cli/overview) and
+      [Kiro CLI](https://kiro.dev/docs/cli/)
 - [ ] Adapters for more agents: [Codex](https://github.com/openai/codex),
-      [opencode](https://github.com/sst/opencode), Cursor CLI
+      [opencode](https://github.com/sst/opencode)
 - [ ] A preferred-agent setting, so the picker's default is yours to choose
 - [ ] Full-text search across session *content* (SQLite FTS5)
 - [ ] `wallfacer restore` (un-trash from the CLI)
