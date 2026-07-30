@@ -11,7 +11,6 @@ import (
 // update check, and the answer lands as a noticeMsg whenever it resolves.
 func TestNoticeArrivesAsynchronously(t *testing.T) {
 	m := filterModel(t)
-	m.w, m.h = 120, 30
 	m.awaitNotice = func() string { return "update available: v0.1.0 → v0.2.0" }
 
 	cmd := m.Init()
@@ -32,7 +31,6 @@ func TestNoticeArrivesAsynchronously(t *testing.T) {
 // A late answer must not stomp on a prompt or on the result of an action.
 func TestLateNoticeYieldsToPromptsAndStatus(t *testing.T) {
 	base := filterModel(t)
-	base.w, base.h = 120, 30
 
 	busy := map[string]func(model) model{
 		"typing":     func(m model) model { m.kind = inputRename; return m },

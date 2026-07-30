@@ -33,22 +33,22 @@ import (
 )
 
 const (
-	// DefaultRepo is the GitHub "owner/name" wallfacer releases live under.
-	DefaultRepo = "pradipta/wallfacer"
-	// DefaultAPIBase is GitHub's API root. Overridable for tests and for
-	// manual end-to-end checks against a local stub server.
-	DefaultAPIBase = "https://api.github.com"
-	// DefaultInterval is how long a cached answer is considered fresh.
-	DefaultInterval = 24 * time.Hour
-	// DefaultTimeout caps the HTTP request itself.
-	DefaultTimeout = 3 * time.Second
+	// repo is the GitHub "owner/name" wallfacer releases live under.
+	repo = "pradipta/wallfacer"
+	// defaultAPIBase is GitHub's API root, overridable via EnvAPIBase for
+	// tests and for manual end-to-end checks against a local stub server.
+	defaultAPIBase = "https://api.github.com"
+	// defaultInterval is how long a cached answer is considered fresh.
+	defaultInterval = 24 * time.Hour
+	// defaultTimeout caps the HTTP request itself.
+	defaultTimeout = 3 * time.Second
 
 	// EnvDisable, when set to a non-empty value other than "0"/"false",
 	// disables the check entirely. Packagers and CI should set it.
 	EnvDisable = "WALLFACER_NO_UPDATE_CHECK"
-	// EnvAPIBase overrides DefaultAPIBase (local testing).
+	// EnvAPIBase overrides defaultAPIBase (local testing).
 	EnvAPIBase = "WALLFACER_UPDATE_API"
-	// EnvInterval overrides DefaultInterval, as a Go duration ("0" forces a
+	// EnvInterval overrides defaultInterval, as a Go duration ("0" forces a
 	// fetch on every run).
 	EnvInterval = "WALLFACER_UPDATE_INTERVAL"
 
@@ -79,16 +79,16 @@ func (n *Notice) Block() string {
 	}
 	return strings.Join([]string{
 		fmt.Sprintf("wallfacer %s is available (you have %s)", n.Latest, n.Current),
-		"  go install " + ModulePath() + "@latest",
+		"  go install " + modulePath + "@latest",
 		"  or download from " + n.URL,
 	}, "\n")
 }
 
-// ModulePath is the go-installable path for DefaultRepo.
-func ModulePath() string { return "github.com/" + DefaultRepo }
+// modulePath is the go-installable path for repo.
+const modulePath = "github.com/" + repo
 
 // Config controls a check. The zero value is usable: everything falls back to
-// the Default* constants and the relevant environment overrides.
+// the package defaults and the relevant environment overrides.
 type Config struct {
 	// Current is the running version. "dev", "" or anything unparsable
 	// disables the check — dev builds should not nag.
@@ -96,34 +96,25 @@ type Config struct {
 	// CacheDir is where the freshness cache is kept (wallfacer's data dir).
 	// Empty means no caching: every call fetches.
 	CacheDir string
-	Repo     string
 	APIBase  string
 	Interval time.Duration
 	Timeout  time.Duration
-	// Client overrides the HTTP client (tests).
-	Client *http.Client
 	// Now overrides the clock (tests).
 	Now func() time.Time
 }
 
 func (c Config) withDefaults() Config {
-	if c.Repo == "" {
-		c.Repo = DefaultRepo
-	}
 	if c.APIBase == "" {
-		c.APIBase = firstNonEmpty(os.Getenv(EnvAPIBase), DefaultAPIBase)
+		c.APIBase = firstNonEmpty(os.Getenv(EnvAPIBase), defaultAPIBase)
 	}
 	if c.Interval == 0 {
-		c.Interval = DefaultInterval
+		c.Interval = defaultInterval
 		if d, err := time.ParseDuration(os.Getenv(EnvInterval)); err == nil {
 			c.Interval = d
 		}
 	}
 	if c.Timeout == 0 {
-		c.Timeout = DefaultTimeout
-	}
-	if c.Client == nil {
-		c.Client = &http.Client{Timeout: c.Timeout}
+		c.Timeout = defaultTimeout
 	}
 	if c.Now == nil {
 		c.Now = time.Now
@@ -148,7 +139,7 @@ type Check struct {
 func Start(cfg Config) *Check {
 	cfg = cfg.withDefaults()
 	c := &Check{res: make(chan *Notice, 1), cfg: cfg}
-	if Disabled() || !isReleaseVersion(cfg.Current) {
+	if disabled() || !isReleaseVersion(cfg.Current) {
 		close(c.res)
 		return c
 	}
@@ -224,8 +215,8 @@ func (c *Check) Await() *Notice {
 	return <-c.res
 }
 
-// Disabled reports whether the user (or a packager) turned the check off.
-func Disabled() bool {
+// disabled reports whether the user (or a packager) turned the check off.
+func disabled() bool {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv(EnvDisable)))
 	return v != "" && v != "0" && v != "false"
 }
@@ -239,7 +230,7 @@ func compare(cfg Config, rel cached) *Notice {
 	return &Notice{
 		Current: normalize(cfg.Current),
 		Latest:  normalize(rel.Latest),
-		URL:     firstNonEmpty(rel.URL, "https://github.com/"+cfg.Repo+"/releases/latest"),
+		URL:     firstNonEmpty(rel.URL, "https://github.com/"+repo+"/releases/latest"),
 	}
 }
 
@@ -308,14 +299,15 @@ func writeCache(cfg Config, rel cached) {
 // excludes drafts and pre-releases, which is exactly what the release workflow
 // arranges with make_latest, so RC tags never trigger a notice.
 func fetchLatest(cfg Config) (cached, error) {
-	url := strings.TrimSuffix(cfg.APIBase, "/") + "/repos/" + cfg.Repo + "/releases/latest"
+	url := strings.TrimSuffix(cfg.APIBase, "/") + "/repos/" + repo + "/releases/latest"
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return cached{}, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "wallfacer/"+cfg.Current)
-	resp, err := cfg.Client.Do(req)
+	client := &http.Client{Timeout: cfg.Timeout}
+	resp, err := client.Do(req)
 	if err != nil {
 		return cached{}, err
 	}
