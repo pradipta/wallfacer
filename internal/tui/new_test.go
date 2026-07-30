@@ -1,10 +1,43 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 )
+
+// withAgents substitutes the launchable agent list for one test.
+func withAgents(t *testing.T, types ...string) {
+	t.Helper()
+	prev := availableAgents
+	availableAgents = func() []string { return types }
+	t.Cleanup(func() { availableAgents = prev })
+}
+
+// keyMsg builds the KeyMsg for a single keystroke or named key.
+func keyMsg(s string) tea.KeyMsg {
+	switch s {
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "left":
+		return tea.KeyMsg{Type: tea.KeyLeft}
+	case "right":
+		return tea.KeyMsg{Type: tea.KeyRight}
+	default:
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+	}
+}
+
+// press feeds one key into the model and returns the updated model.
+func press(t *testing.T, m model, k string) model {
+	t.Helper()
+	next, _ := m.Update(keyMsg(k))
+	return next.(model)
+}
 
 // step feeds one answer into the new-session chain and returns the model as it
 // waits for the next one.
@@ -16,6 +49,133 @@ func step(t *testing.T, m model, kind inputKind, value string) model {
 
 func newChainModel() model {
 	return model{input: textinput.New(), projIdx: -1, tagIdx: -1}
+}
+
+// chooserModel is a model whose picker is already open over the given agents.
+func chooserModel(agents ...string) model {
+	m := newChainModel()
+	m.draft = Action{Type: ActionNew}
+	m.agentChoices = agents
+	m.agentChoice = max(indexOf(agents, defaultAgentType), 0)
+	m.choosingAgent = true
+	return m
+}
+
+func TestAgentChooserDefaultsToClaudeCode(t *testing.T) {
+	m := chooserModel("claude-code", "kiro-cli")
+	if got := m.agentChoices[m.agentChoice]; got != "claude-code" {
+		t.Fatalf("preselected %q, want claude-code", got)
+	}
+	m = press(t, m, "enter")
+	if m.choosingAgent {
+		t.Error("enter should close the picker")
+	}
+	if m.kind != inputNewDir {
+		t.Errorf("kind = %v, want inputNewDir right after the agent step", m.kind)
+	}
+	if m.draft.Agent != "claude-code" {
+		t.Errorf("draft agent = %q", m.draft.Agent)
+	}
+}
+
+func TestAgentChooserMovesAndWraps(t *testing.T) {
+	m := chooserModel("claude-code", "kiro-cli")
+	m = press(t, m, "right")
+	if got := m.agentChoices[m.agentChoice]; got != "kiro-cli" {
+		t.Errorf("after right: %q", got)
+	}
+	m = press(t, m, "right")
+	if got := m.agentChoices[m.agentChoice]; got != "claude-code" {
+		t.Errorf("right should wrap around, got %q", got)
+	}
+	m = press(t, m, "left")
+	if got := m.agentChoices[m.agentChoice]; got != "kiro-cli" {
+		t.Errorf("left should wrap backwards, got %q", got)
+	}
+	// The chooser owns the footer line while it is up.
+	m.w = 80
+	if view := m.footerView(); !strings.Contains(view, "kiro-cli") || !strings.Contains(view, "agent") {
+		t.Errorf("footer should show the picker, got %q", view)
+	}
+}
+
+func TestAgentChooserDigitSelects(t *testing.T) {
+	m := chooserModel("claude-code", "kiro-cli")
+	m = press(t, m, "2")
+	if m.choosingAgent {
+		t.Error("a digit should confirm immediately")
+	}
+	if m.draft.Agent != "kiro-cli" {
+		t.Errorf("draft agent = %q, want kiro-cli", m.draft.Agent)
+	}
+	if m.kind != inputNewDir {
+		t.Errorf("kind = %v, want inputNewDir", m.kind)
+	}
+	// Out-of-range digits are ignored rather than picking nothing.
+	m2 := press(t, chooserModel("claude-code", "kiro-cli"), "9")
+	if !m2.choosingAgent {
+		t.Error("digit beyond the choices should leave the picker open")
+	}
+}
+
+func TestAgentChooserEscAbandonsFlow(t *testing.T) {
+	m := press(t, chooserModel("claude-code", "kiro-cli"), "esc")
+	if m.choosingAgent {
+		t.Error("esc should close the picker")
+	}
+	if m.kind != inputNone {
+		t.Errorf("esc should not open the dir prompt, kind = %v", m.kind)
+	}
+	if m.draft.Type != ActionQuit || m.action.Type != ActionQuit {
+		t.Error("esc should leave no pending new-session action")
+	}
+}
+
+func TestStartNewSessionSkipsPickerForSingleAgent(t *testing.T) {
+	withAgents(t, "only-agent")
+
+	m := newChainModel()
+	m.draft = Action{Type: ActionNew}
+	m = m.startNewSession()
+
+	if m.choosingAgent {
+		t.Error("a single registered adapter needs no picker")
+	}
+	if m.kind != inputNewDir {
+		t.Errorf("kind = %v, want inputNewDir", m.kind)
+	}
+	if m.draft.Agent != "only-agent" {
+		t.Errorf("draft agent = %q, want the only registered adapter", m.draft.Agent)
+	}
+}
+
+func TestStartNewSessionOpensPickerForSeveralAgents(t *testing.T) {
+	withAgents(t, "claude-code", "kiro-cli")
+
+	m := newChainModel()
+	m.draft = Action{Type: ActionNew}
+	m = m.startNewSession()
+
+	if !m.choosingAgent {
+		t.Fatal("two adapters should open the picker")
+	}
+	if got := m.agentChoices[m.agentChoice]; got != "claude-code" {
+		t.Errorf("preselected %q, want the default agent", got)
+	}
+}
+
+func TestNewChainCarriesAgentThrough(t *testing.T) {
+	m := chooserModel("claude-code", "kiro-cli")
+	m = press(t, m, "2")
+	m = step(t, m, inputNewDir, "/tmp/foo")
+	m = step(t, m, inputNewTitle, "index kiro sessions")
+	m = step(t, m, inputNewProject, "wallfacer")
+	m = step(t, m, inputNewTags, "go")
+
+	if got := m.action; got.Agent != "kiro-cli" || got.Dir != "/tmp/foo" ||
+		got.Title != "index kiro sessions" || got.Project != "wallfacer" {
+		t.Errorf("action = %+v", got)
+	}
 }
 
 func TestNewChainCollectsOverlay(t *testing.T) {

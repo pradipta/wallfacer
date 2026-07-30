@@ -9,9 +9,10 @@
 
 # wallfacer
 
-A terminal session manager for [Claude Code](https://claude.com/claude-code) — see every AI coding
-session you've ever started, then **name, tag, group, search, resume, or delete** them, from a
-full-screen browser or straight from the command line.
+A terminal session manager for [Claude Code](https://claude.com/claude-code) and
+[Kiro CLI](https://kiro.dev/docs/cli/) — see every AI coding session you've ever started, then
+**name, tag, group, search, resume, or delete** them, from a full-screen browser or straight
+from the command line.
 
 ![Build Status](https://github.com/pradipta/wallfacer/actions/workflows/build.yml/badge.svg)
 ![Release](https://github.com/pradipta/wallfacer/actions/workflows/release.yml/badge.svg)
@@ -23,21 +24,24 @@ full-screen browser or straight from the command line.
 ## Why
 
 Claude Code stores every conversation as an untitled JSONL file under `~/.claude/projects/`,
-keyed by whatever directory you were in. After a few weeks you have dozens of transcripts you
-can't tell apart and no way to find the one you need.
+keyed by whatever directory you were in. Kiro CLI does much the same in a single flat
+`~/.kiro/sessions/cli/` folder. After a few weeks you have dozens of transcripts, across two
+agents, that you can't tell apart and no way to find the one you need.
 
-wallfacer indexes them all — **read-only, it never touches Claude's files** — and keeps your
-titles, tags, and projects in its own local SQLite database.
+wallfacer indexes them all — **read-only, it never touches the agents' files** — and keeps
+your titles, tags, and projects in its own local SQLite database.
 
 ## Features
 
-- **One view of everything** — every session, from every directory, sorted by recency
+- **One view of everything** — every session, from every directory and every agent, sorted by recency
 - **Organize** — rename sessions, tag them, group them into projects
 - **Search** — across titles, first prompts, directories, projects, and tags
 - **Launch & resume** — start new sessions or jump back into old ones, from anywhere
+- **Multi-agent** — Claude Code and Kiro CLI side by side; pick the agent when you start a
+  session, filter by it afterwards
 - **Safe deletes** — `rm` moves to trash; only `--purge` is permanent
 - **TUI and CLI** — a full-screen browser for humans, subcommands + `--json` for scripts
-- **Extensible** — agents are pluggable adapters; Codex, opencode, Cursor CLI, and kiro-cli are on the roadmap
+- **Extensible** — agents are pluggable adapters; Codex, opencode and Cursor CLI are on the roadmap
 
 ## Install
 
@@ -98,14 +102,18 @@ takes the full width.
 |-----|--------|
 | `↑/↓` `j/k` | move |
 | `/` | fuzzy filter across titles, projects, dirs and tags |
-| `P` / `T` | cycle the project / tag filter (wraps back to unfiltered) |
-| `x` | clear the project and tag filters |
+| `P` / `T` / `A` | cycle the project / tag / agent filter (wraps back to unfiltered) |
+| `x` | clear the project, tag and agent filters |
 | `tab` | show or hide the detail pane |
 | `enter` | resume — the terminal is handed to the agent; the browser returns when you exit |
-| `n` | new session (prompts for directory, then title, project, tags) |
+| `n` | new session (asks for the agent, then directory, title, project, tags) |
 | `r` / `t` / `p` | rename / edit tags / set project |
 | `d` | delete → trash, with confirmation |
 | `?` / `q` | help / quit |
+
+The agent step comes first and is a one-line picker: `←/→` or a digit to choose, `enter` to
+go on, `esc` to back out. Claude Code is preselected, and the step is skipped entirely if only
+one adapter is registered.
 
 ## The CLI — `wallfacer <command>`
 
@@ -114,9 +122,9 @@ Every subcommand is one-shot: it runs, prints, and exits. Same index as the brow
 | Command | What it does |
 |---------|--------------|
 | `wallfacer` | *(no subcommand)* Open the interactive browser |
-| `wallfacer new [dir] [--title T] [--project P] [--tag t]` | Start a new session in a directory |
+| `wallfacer new [dir] [--agent A] [--title T] [--project P] [--tag t]` | Start a new session in a directory |
 | `wallfacer resume <ref>` | Reopen a session in its original directory |
-| `wallfacer list [--project P] [--tag T] [--json]` | List sessions, newest first |
+| `wallfacer list [--project P] [--tag T] [--agent A] [--json]` | List sessions, newest first |
 | `wallfacer search <query>` | Search titles, prompts, dirs, projects, tags |
 | `wallfacer show <ref>` | Full details of one session |
 | `wallfacer rename <ref> <title>` | Rename a session |
@@ -131,18 +139,27 @@ picked up automatically; there's no import step.
 
 ## How it works
 
-wallfacer scans `~/.claude/projects/`, reading just the head of each session file for its
-working directory, timestamps, and first prompt (the automatic title). Your metadata lives in
-SQLite at `~/.local/share/wallfacer/` — delete it and you lose only the overlay, never a
-conversation. Sync is incremental, so it stays fast with hundreds of sessions.
+wallfacer scans `~/.claude/projects/` and `~/.kiro/sessions/cli/`, reading just the head of
+each session file for its working directory, timestamps, and first prompt (the automatic
+title). Both agents' listings carry the agent type, so `wallfacer list` shows an `AGENT`
+column and `--agent` narrows to one. Your metadata lives in SQLite at
+`~/.local/share/wallfacer/` — delete it and you lose only the overlay, never a conversation.
+Sync is incremental, so it stays fast with hundreds of sessions.
+
+`rm` moves a session to wallfacer's trash. For agents that spread one session over several
+files — Kiro CLI writes a transcript plus a metadata sidecar, prompt history and a scratch
+directory — the whole set travels together, so a deleted session doesn't linger in the agent's
+own session picker.
 
 Other agents plug in through a small adapter interface — see
 [docs/adding-an-agent.md](docs/adding-an-agent.md).
 
 ## Roadmap
 
+- [x] Adapters for Claude Code and [Kiro CLI](https://kiro.dev/docs/cli/)
 - [ ] Adapters for more agents: [Codex](https://github.com/openai/codex),
-      [opencode](https://github.com/sst/opencode), Cursor CLI, kiro-cli
+      [opencode](https://github.com/sst/opencode), Cursor CLI
+- [ ] A preferred-agent setting, so the picker's default is yours to choose
 - [ ] Full-text search across session *content* (SQLite FTS5)
 - [ ] `wallfacer restore` (un-trash from the CLI)
 - [ ] Export a session transcript to Markdown

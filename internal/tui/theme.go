@@ -36,6 +36,12 @@ var (
 	// Filter chips in the header.
 	chipProjectStyle = lipgloss.NewStyle().Foreground(colProject).Bold(true)
 	chipTagStyle     = lipgloss.NewStyle().Foreground(colTag).Bold(true)
+	chipAgentStyle   = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+
+	// Agent chooser (new-session flow). The unselected chips stay dim so the
+	// current choice reads at a glance on the shared footer line.
+	choiceStyle         = lipgloss.NewStyle().Foreground(colDim)
+	choiceSelectedStyle = lipgloss.NewStyle().Foreground(colAccent).Bold(true).Underline(true)
 
 	// List rows. Layout-only wrappers: they set indentation, never colour, so
 	// the coloured spans composed inside a row survive untouched. Selected

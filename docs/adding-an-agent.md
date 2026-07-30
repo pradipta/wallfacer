@@ -1,12 +1,23 @@
 # Adding a new agent adapter
 
 wallfacer supports multiple coding agents through a small adapter interface. The
-`claude-code` adapter is the reference implementation; this guide walks through adding
-another one (OpenCode, Codex, aider, …).
+`claude-code` and `kiro-cli` adapters are the reference implementations; this guide walks
+through adding another one (OpenCode, Codex, aider, …).
 
 The short version: **one new package implementing 6 methods, plus one registration
 line.** Sync, the SQLite index, `list`/`search`, the TUI, resume, and trash are all
 agent-agnostic — they pick up a new adapter automatically.
+
+The two shipped adapters bracket most of the design space, so read whichever is closer to
+your target:
+
+| | [`claudecode`](../internal/agent/claudecode/claudecode.go) | [`kirocli`](../internal/agent/kirocli/kirocli.go) |
+|---|---|---|
+| Layout | `~/.claude/projects/<encoded-dir>/<uuid>.jsonl` | flat `~/.kiro/sessions/cli/<uuid>.jsonl` |
+| Metadata source | inside the transcript | a `<uuid>.json` sidecar |
+| Files per session | one | four plus a directory (see `CompanionFiles` below) |
+| Pre-assigned session ID | yes (`--session-id`) | no |
+| Internal transcripts | `isSidechain` on the first user record | a non-empty `parent_session_id` in the sidecar |
 
 ## Before writing code: research the target agent
 
@@ -16,27 +27,33 @@ questions first (poke around with `ls` and `jq` on a machine that has real sessi
 1. **Where do session files live, and what's the format?**
    One file per session on local disk is the assumption the interface is built on.
    Examples: Claude Code uses `~/.claude/projects/<encoded-dir>/<uuid>.jsonl`;
+   Kiro CLI uses a flat `~/.kiro/sessions/cli/` (overridable with `$KIRO_HOME`);
    OpenCode stores under `~/.local/share/opencode/`; Codex under `~/.codex/sessions/`.
 
 2. **Can you recover the session's working directory reliably?**
    This is the classic trap. Claude Code encodes the directory into the folder name,
    but the encoding is lossy — the adapter must read `cwd` from *inside* the file
-   instead. Expect your agent to have its own version of this problem, and prefer
-   whatever the session file itself records over anything derived from paths.
+   instead. Kiro CLI encodes nothing at all and records `cwd` in its sidecar. Expect your
+   agent to have its own version of this problem, and prefer whatever the session's own
+   files record over anything derived from paths.
 
 3. **What are the launch and resume commands?**
    Verify against the actually-installed binary, including:
    - Does it support *pre-assigning* a session ID at launch
      (like `claude --session-id <uuid>`)? If yes, wallfacer can track the session
-     from birth. If no, that's fine too — see `SupportsSessionID` below.
-   - How do you resume by ID (like `claude --resume <id>`)? Does it need to run in
-     the session's original directory?
+     from birth. If no — Kiro CLI has no such flag — that's fine too; see
+     `SupportsSessionID` below.
+   - How do you resume by ID (like `claude --resume <id>` or
+     `kiro-cli chat --resume-id <id>`)? Does it need to run in the session's original
+     directory?
 
 4. **Does the agent write internal transcripts you should hide?**
-   Claude Code stores subagent ("sidechain") transcripts next to real sessions.
-   If your agent does something similar, detect it in `ParseMetadata` and set
-   `Metadata.Sidechain = true` — wallfacer indexes them hidden so sync stays
-   incremental, but never lists them.
+   Claude Code stores subagent ("sidechain") transcripts next to real sessions, and Kiro
+   CLI does the same for its subagents. If your agent does something similar, detect it in
+   `ParseMetadata` and set `Metadata.Sidechain = true` — wallfacer indexes them hidden so
+   sync stays incremental, but never lists them. Watch for near-misses: Kiro CLI's
+   `session_created_reason: "subagent"` shows up on ordinary top-level sessions too, so
+   the adapter keys off `parent_session_id` instead.
 
 ## Step 1: implement the `Adapter` interface
 
@@ -137,6 +154,36 @@ Notes on the individual methods:
   (inherited stdio); wallfacer ignores SIGINT/SIGTERM while it runs so Ctrl+C
   reaches the agent, not wallfacer.
 
+## Optional: sessions made of several files
+
+wallfacer tracks exactly one file per session — the transcript, whose mtime is the "last
+active" signal. Agents that scatter a session across more paths should also implement the
+optional `agent.CompanionFiler` interface, or `wallfacer rm` will trash the transcript and
+leave the rest behind (and the agent's own session picker will keep offering a session whose
+transcript is gone):
+
+```go
+type CompanionFiler interface {
+    // CompanionFiles returns sibling paths — files or directories — belonging
+    // to the same session as the tracked file at path.
+    CompanionFiles(path string) []string
+}
+```
+
+Kiro CLI's implementation returns the metadata sidecar, the prompt history, the lock file and
+the per-session scratch directory:
+
+```go
+func (a *Adapter) CompanionFiles(path string) []string {
+    stem := strings.TrimSuffix(path, ".jsonl")
+    return []string{stem + ".json", stem + ".history", stem + ".lock", stem}
+}
+```
+
+`Trash` moves the whole set into wallfacer's trash, keeping basenames, and `--purge` deletes
+it. Return paths freely: ones that don't exist are skipped. Only the tracked file is
+load-bearing — a companion that can't be moved is skipped rather than failing the delete.
+
 ## Step 2: register the adapter
 
 One line in [`cmd/deps.go`](../cmd/deps.go):
@@ -144,31 +191,38 @@ One line in [`cmd/deps.go`](../cmd/deps.go):
 ```go
 func init() {
     agent.Register(claudecode.New())
+    agent.Register(kirocli.New())
     agent.Register(opencode.New())   // add this
 }
 ```
 
 That's the entire integration. `Sync()` iterates all registered adapters, so the next
-`wallfacer sync` indexes the new agent's sessions alongside Claude's, and
-`wallfacer list --agent opencode`, the TUI, `resume`, and `rm` all work immediately.
+`wallfacer sync` indexes the new agent's sessions alongside the others, and
+`wallfacer list --agent opencode`, the TUI (including its `A` filter and the agent picker
+on `n`), `resume`, and `rm` all work immediately.
 
 ## Step 3: test with a fixture
 
-Mirror [`claudecode_test.go`](../internal/agent/claudecode/claudecode_test.go):
-construct a temp directory containing a couple of hand-written session files in the
-agent's real format, point the adapter's directory field at it, and assert:
+Mirror [`claudecode_test.go`](../internal/agent/claudecode/claudecode_test.go) or
+[`kirocli_test.go`](../internal/agent/kirocli/kirocli_test.go): construct a temp directory
+containing a couple of hand-written session files in the agent's real format, point the
+adapter's directory field at it, and assert:
 
-- `ListSessionFiles` finds them with correct IDs
+- `ListSessionFiles` finds them with correct IDs, and ignores companions and half-written
+  sessions
 - `ParseMetadata` extracts the right `Dir`, `FirstPrompt`/`Summary`, `CreatedAt`
 - internal/sidechain-style transcripts get `Sidechain: true` (if applicable)
+- missing or malformed metadata degrades instead of erroring
 - a nonexistent sessions directory returns `(nil, nil)`, not an error
 
-Then verify end-to-end against real data:
+Then verify end-to-end against real data. Point `WALLFACER_DATA_DIR` at a throwaway
+directory so experiments can't disturb your real index:
 
 ```bash
 make build
+export WALLFACER_DATA_DIR=/tmp/wf-test
 ./wallfacer sync && ./wallfacer list --agent <youragent>
-./wallfacer new /tmp/wf-test --agent <youragent>   # exit the agent, check it indexed
+./wallfacer new /tmp/wf-scratch --agent <youragent>   # exit the agent, check it indexed
 ./wallfacer resume <id-prefix>
 ```
 
@@ -178,7 +232,9 @@ Once registered, with zero extra code:
 
 - incremental sync and missing-file detection
 - titles, tags, projects, search (`internal/store` is agent-agnostic)
-- the TUI browser, with the agent type shown on each row
+- the TUI browser, with the agent type shown on each row, an `A` filter, and a place in the
+  new-session picker
+- an `AGENT` column in `wallfacer list` and `--agent` filtering
 - `resume` by ID prefix or title
 - trash / `--purge` semantics for `rm`
 
