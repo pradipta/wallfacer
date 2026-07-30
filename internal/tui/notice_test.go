@@ -7,6 +7,48 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// The notice arrives asynchronously: Init schedules a command that waits for the
+// update check, and the answer lands as a noticeMsg whenever it resolves.
+func TestNoticeArrivesAsynchronously(t *testing.T) {
+	m := filterModel(t)
+	m.w, m.h = 120, 30
+	m.awaitNotice = func() string { return "update available: v0.1.0 → v0.2.0" }
+
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("Init scheduled no command for the update check")
+	}
+	msg := cmd() // tea runs this in its own goroutine, so blocking here is free
+	got, ok := msg.(noticeMsg)
+	if !ok {
+		t.Fatalf("Init's command produced %T, want noticeMsg", msg)
+	}
+	next, _ := m.Update(got)
+	if n := next.(model).notice; n != "update available: v0.1.0 → v0.2.0" {
+		t.Errorf("notice = %q, want the message", n)
+	}
+}
+
+// A late answer must not stomp on a prompt or on the result of an action.
+func TestLateNoticeYieldsToPromptsAndStatus(t *testing.T) {
+	base := filterModel(t)
+	base.w, base.h = 120, 30
+
+	busy := map[string]func(model) model{
+		"typing":     func(m model) model { m.kind = inputRename; return m },
+		"confirming": func(m model) model { m.confirmingDelete = true; return m },
+		"picking":    func(m model) model { m.choosingAgent = true; return m },
+		"status set": func(m model) model { m.status = "renamed"; return m },
+	}
+	for name, setup := range busy {
+		m := setup(base)
+		next, _ := m.Update(noticeMsg("update available: v0.1.0 → v0.2.0"))
+		if n := next.(model).notice; n != "" {
+			t.Errorf("%s: notice took the footer anyway (%q)", name, n)
+		}
+	}
+}
+
 // The update notice owns the footer on the first frame, and steps aside as soon
 // as the user does anything.
 func TestUpdateNoticeShowsOnFooterThenClears(t *testing.T) {

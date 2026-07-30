@@ -48,13 +48,21 @@ func cfg(t *testing.T, current, base string) update.Config {
 		Current:  current,
 		CacheDir: t.TempDir(),
 		APIBase:  base,
-		Grace:    5 * time.Second,
 	}
+}
+
+// check runs a full check the way the browser does: resolve from the cache,
+// then look GitHub up and wait for the answer.
+func check(t *testing.T, c update.Config) *update.Notice {
+	t.Helper()
+	chk := update.Start(c)
+	chk.Refresh()
+	return chk.Await()
 }
 
 func TestNoticeWhenNewerReleaseExists(t *testing.T) {
 	base, _ := stubGitHub(t, release("v0.2.0"))
-	n := update.Start(cfg(t, "v0.1.0", base)).Result()
+	n := check(t, cfg(t, "v0.1.0", base))
 	if n == nil {
 		t.Fatal("expected a notice, got nil")
 	}
@@ -72,7 +80,7 @@ func TestNoticeWhenNewerReleaseExists(t *testing.T) {
 func TestNoNoticeWhenUpToDateOrAhead(t *testing.T) {
 	for _, current := range []string{"v0.2.0", "v0.3.0", "v1.0.0"} {
 		base, _ := stubGitHub(t, release("v0.2.0"))
-		if n := update.Start(cfg(t, current, base)).Result(); n != nil {
+		if n := check(t, cfg(t, current, base)); n != nil {
 			t.Errorf("current %s: unexpected notice %+v", current, n)
 		}
 	}
@@ -81,7 +89,7 @@ func TestNoNoticeWhenUpToDateOrAhead(t *testing.T) {
 // A pre-release build should be told about the stable release that supersedes it.
 func TestPrereleaseCurrentGetsNotified(t *testing.T) {
 	base, _ := stubGitHub(t, release("v0.2.0"))
-	if n := update.Start(cfg(t, "v0.2.0-rc.1", base)).Result(); n == nil {
+	if n := check(t, cfg(t, "v0.2.0-rc.1", base)); n == nil {
 		t.Fatal("expected rc build to be told about v0.2.0")
 	}
 }
@@ -100,7 +108,7 @@ func TestDevBuildsAreQuiet(t *testing.T) {
 		"v1.2.0-rc.1-dirty",                  // on an rc tag, uncommitted changes
 	} {
 		base, hits := stubGitHub(t, release("v9.9.9"))
-		if n := update.Start(cfg(t, current, base)).Result(); n != nil {
+		if n := check(t, cfg(t, current, base)); n != nil {
 			t.Errorf("current %q: unexpected notice %+v", current, n)
 		}
 		if *hits != 0 {
@@ -112,7 +120,7 @@ func TestDevBuildsAreQuiet(t *testing.T) {
 // A clean pre-release tag is a real, installable version, so it still checks.
 func TestCleanPrereleaseTagStillChecks(t *testing.T) {
 	base, hits := stubGitHub(t, release("v9.9.9"))
-	if n := update.Start(cfg(t, "v1.2.0-rc.1", base)).Result(); n == nil {
+	if n := check(t, cfg(t, "v1.2.0-rc.1", base)); n == nil {
 		t.Error("expected a clean rc build to be told about v9.9.9")
 	}
 	if *hits != 1 {
@@ -124,7 +132,7 @@ func TestDisableEnvSkipsCheck(t *testing.T) {
 	base, hits := stubGitHub(t, release("v9.9.9"))
 	c := cfg(t, "v0.1.0", base)
 	t.Setenv(update.EnvDisable, "1")
-	if n := update.Start(c).Result(); n != nil {
+	if n := check(t, c); n != nil {
 		t.Errorf("unexpected notice %+v", n)
 	}
 	if *hits != 0 {
@@ -136,7 +144,7 @@ func TestCacheAvoidsSecondFetch(t *testing.T) {
 	base, hits := stubGitHub(t, release("v0.2.0"))
 	c := cfg(t, "v0.1.0", base)
 	for i := 0; i < 3; i++ {
-		if n := update.Start(c).Result(); n == nil {
+		if n := check(t, c); n == nil {
 			t.Fatalf("run %d: expected a notice", i)
 		}
 	}
@@ -151,12 +159,12 @@ func TestCacheAvoidsSecondFetch(t *testing.T) {
 func TestStaleCacheRefetches(t *testing.T) {
 	base, hits := stubGitHub(t, release("v0.2.0"))
 	c := cfg(t, "v0.1.0", base)
-	if update.Start(c).Result() == nil {
+	if check(t, c) == nil {
 		t.Fatal("expected a notice")
 	}
 	// Pretend the cached answer is two days old.
 	c.Now = func() time.Time { return time.Now().Add(48 * time.Hour) }
-	if update.Start(c).Result() == nil {
+	if check(t, c) == nil {
 		t.Fatal("expected a notice after cache expiry")
 	}
 	if *hits != 2 {
@@ -172,7 +180,7 @@ func TestZeroIntervalAlwaysFetches(t *testing.T) {
 	t.Setenv(update.EnvInterval, "0")
 	c.Interval = 0 // force the env override to be consulted
 	for i := 0; i < 2; i++ {
-		if update.Start(c).Result() == nil {
+		if check(t, c) == nil {
 			t.Fatalf("run %d: expected a notice", i)
 		}
 	}
@@ -186,7 +194,7 @@ func TestPrereleaseAndDraftPayloadsIgnored(t *testing.T) {
 		body := release("v9.9.9")
 		body[field] = true
 		base, _ := stubGitHub(t, body)
-		if n := update.Start(cfg(t, "v0.1.0", base)).Result(); n != nil {
+		if n := check(t, cfg(t, "v0.1.0", base)); n != nil {
 			t.Errorf("%s payload produced a notice: %+v", field, n)
 		}
 	}
@@ -211,7 +219,7 @@ func TestServerFailuresAreSilent(t *testing.T) {
 	}
 	for name, h := range cases {
 		srv := httptest.NewServer(h)
-		if n := update.Start(cfg(t, "v0.1.0", srv.URL)).Result(); n != nil {
+		if n := check(t, cfg(t, "v0.1.0", srv.URL)); n != nil {
 			t.Errorf("%s: unexpected notice %+v", name, n)
 		}
 		srv.Close()
@@ -224,25 +232,116 @@ func TestUnreachableServerIsSilent(t *testing.T) {
 	srv.Close() // nothing is listening now
 	c := cfg(t, "v0.1.0", base)
 	c.Timeout = 200 * time.Millisecond
-	if n := update.Start(c).Result(); n != nil {
+	if n := check(t, c); n != nil {
 		t.Errorf("unexpected notice %+v", n)
 	}
 }
 
-// Result must not block a command for long when the network hangs.
-func TestResultRespectsGrace(t *testing.T) {
+// Nothing on a subcommand's path may touch the network: Start resolves from the
+// cache alone, so a server that never answers costs nothing and is never even
+// contacted.
+func TestStartNeverTouchesTheNetwork(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(2 * time.Second)
+		t.Error("Start made an HTTP request")
+		time.Sleep(10 * time.Second)
 	}))
 	defer srv.Close()
-	c := cfg(t, "v0.1.0", srv.URL)
-	c.Grace = 50 * time.Millisecond
+
 	start := time.Now()
-	if n := update.Start(c).Result(); n != nil {
-		t.Errorf("unexpected notice %+v", n)
+	chk := update.Start(cfg(t, "v0.1.0", srv.URL))
+	if n := chk.Result(); n != nil {
+		t.Errorf("Result returned %+v with a cold cache", n)
 	}
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Errorf("Result blocked for %s, want ≲ grace (50ms)", elapsed)
+	if elapsed := time.Since(start); elapsed > 20*time.Millisecond {
+		t.Errorf("Start+Result took %s, want ~instant", elapsed)
+	}
+}
+
+// Even with a Refresh in flight, Result must not wait for it.
+func TestResultNeverWaitsForRefresh(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(10 * time.Second)
+	}))
+	defer srv.Close()
+	chk := update.Start(cfg(t, "v0.1.0", srv.URL))
+	chk.Refresh()
+	start := time.Now()
+	if n := chk.Result(); n != nil {
+		t.Errorf("Result returned %+v before the lookup could finish", n)
+	}
+	if elapsed := time.Since(start); elapsed > 20*time.Millisecond {
+		t.Errorf("Result took %s, want ~instant", elapsed)
+	}
+}
+
+// The point of the cache: a run that does no lookup still shows the answer a
+// previous run left behind, instantly.
+func TestFreshCacheAnswersImmediately(t *testing.T) {
+	base, hits := stubGitHub(t, release("v0.2.0"))
+	c := cfg(t, "v0.1.0", base)
+	if check(t, c) == nil {
+		t.Fatal("first run: expected a notice")
+	}
+
+	// Point at a dead server: only the cache can answer now.
+	c.APIBase = "http://127.0.0.1:1"
+	start := time.Now()
+	n := update.Start(c).Result() // no Refresh: exactly what a subcommand does
+	if n == nil {
+		t.Fatal("second run: Result did not see the cached notice")
+	}
+	if elapsed := time.Since(start); elapsed > 20*time.Millisecond {
+		t.Errorf("cached answer took %s, want ~instant", elapsed)
+	}
+	if *hits != 1 {
+		t.Errorf("made %d API calls, want 1", *hits)
+	}
+}
+
+// The only thing a subcommand pays for is Start's small file read. Keep it
+// negligible — this is the guard against anyone reintroducing work there.
+func TestStartCostIsNegligible(t *testing.T) {
+	base, _ := stubGitHub(t, release("v0.2.0"))
+	c := cfg(t, "v0.1.0", base)
+	if check(t, c) == nil { // warm the cache: the common case
+		t.Fatal("expected a notice")
+	}
+	const runs = 200
+	start := time.Now()
+	for i := 0; i < runs; i++ {
+		update.Start(c).Result()
+	}
+	per := time.Since(start) / runs
+	t.Logf("Start+Result: %s per call (warm cache)", per)
+	if per > 500*time.Microsecond {
+		t.Errorf("Start+Result costs %s per call, want well under a millisecond", per)
+	}
+}
+
+// Await must not hang when nothing is coming — no Refresh, no answer, no wait.
+func TestAwaitWithoutRefreshReturnsImmediately(t *testing.T) {
+	base, _ := stubGitHub(t, release("v0.2.0"))
+	start := time.Now()
+	if n := update.Start(cfg(t, "v0.1.0", base)).Await(); n != nil {
+		t.Errorf("Await returned %+v without a Refresh", n)
+	}
+	if elapsed := time.Since(start); elapsed > 20*time.Millisecond {
+		t.Errorf("Await took %s, want ~instant", elapsed)
+	}
+}
+
+// Reopening the browser after an agent session must not re-fetch.
+func TestRefreshIsIdempotent(t *testing.T) {
+	base, hits := stubGitHub(t, release("v0.2.0"))
+	chk := update.Start(cfg(t, "v0.1.0", base))
+	chk.Refresh()
+	chk.Refresh()
+	chk.Refresh()
+	if chk.Await() == nil {
+		t.Fatal("expected a notice")
+	}
+	if *hits != 1 {
+		t.Errorf("made %d API calls, want 1", *hits)
 	}
 }
 
@@ -254,7 +353,7 @@ func TestUnwritableCacheStillNotifies(t *testing.T) {
 	if err := os.Mkdir(c.CacheDir, 0o500); err != nil {
 		t.Fatal(err)
 	}
-	if update.Start(c).Result() == nil {
+	if check(t, c) == nil {
 		t.Error("expected a notice despite an unwritable cache dir")
 	}
 }
@@ -267,35 +366,33 @@ func TestCorruptCacheIsIgnored(t *testing.T) {
 		[]byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if update.Start(c).Result() == nil {
+	if check(t, c) == nil {
 		t.Error("expected a notice with a corrupt cache present")
 	}
 }
 
-// The notice must be consumable exactly once: the TUI takes it for its footer,
-// and that is precisely what keeps Execute from also printing it to stderr. The
-// second call must also return promptly rather than waiting out the grace.
+// The notice must be consumable exactly once: the browser takes it for its
+// footer, and that is precisely what keeps Execute from also printing it to
+// stderr.
 func TestResultYieldsOnlyOnce(t *testing.T) {
 	base, _ := stubGitHub(t, release("v0.2.0"))
-	c := cfg(t, "v0.1.0", base)
-	c.Grace = 5 * time.Second
-	chk := update.Start(c)
-	if chk.Result() == nil {
-		t.Fatal("first Result: expected a notice")
+	chk := update.Start(cfg(t, "v0.1.0", base))
+	chk.Refresh()
+	if chk.Await() == nil {
+		t.Fatal("first collection: expected a notice")
 	}
-	start := time.Now()
+	if n := chk.Await(); n != nil {
+		t.Errorf("second collection returned %+v, want nil", n)
+	}
 	if n := chk.Result(); n != nil {
-		t.Errorf("second Result returned %+v, want nil", n)
-	}
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Errorf("second Result blocked for %s, want immediate", elapsed)
+		t.Errorf("third collection returned %+v, want nil", n)
 	}
 }
 
 // browseLoop chains these calls, so the nil path has to survive it.
 func TestLineOnEmptyResultIsEmpty(t *testing.T) {
 	base, _ := stubGitHub(t, release("v0.1.0")) // same as current: no notice
-	if line := update.Start(cfg(t, "v0.1.0", base)).Result().Line(); line != "" {
+	if line := check(t, cfg(t, "v0.1.0", base)).Line(); line != "" {
 		t.Errorf("Line() = %q, want empty", line)
 	}
 }
@@ -303,7 +400,10 @@ func TestLineOnEmptyResultIsEmpty(t *testing.T) {
 func TestNilCheckAndNilNoticeAreSafe(t *testing.T) {
 	var c *update.Check
 	if n := c.Result(); n != nil {
-		t.Errorf("nil Check returned %+v", n)
+		t.Errorf("nil Check.Result returned %+v", n)
+	}
+	if n := c.Await(); n != nil {
+		t.Errorf("nil Check.Await returned %+v", n)
 	}
 	var n *update.Notice
 	if n.Line() != "" || n.Block() != "" {

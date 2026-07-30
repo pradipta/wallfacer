@@ -50,14 +50,16 @@ type Action struct {
 }
 
 // Run shows the browser and blocks until the user quits or picks an action.
-// notice, when non-empty, is a one-line message shown on the footer until the
-// user's first action replaces it — used for the "update available" hint.
-func Run(s *store.Store, notice string) (Action, error) {
+// awaitNotice, when non-nil, is called from a Bubble Tea command — so it may
+// block — and its result is shown on the footer if it arrives while the user
+// has nothing else going on. It is how the "update available" hint reaches the
+// browser without anything waiting for it.
+func Run(s *store.Store, awaitNotice func() string) (Action, error) {
 	m, err := newModel(s)
 	if err != nil {
 		return Action{}, err
 	}
-	m.notice = notice
+	m.awaitNotice = awaitNotice
 	final, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	if err != nil {
 		return Action{}, err
@@ -115,9 +117,13 @@ type model struct {
 	agentChoices  []string
 	agentChoice   int
 	status        string
-	// notice is the "update available" hint. It owns the footer until the
-	// first keypress, then yields to the help line for good.
+	// notice is the "update available" hint. It arrives asynchronously via
+	// noticeMsg, owns the footer until the first keypress, then yields to the
+	// help line for good.
 	notice string
+	// awaitNotice blocks until the update check has an answer; it runs inside
+	// a tea.Cmd, never on the update path.
+	awaitNotice func() string
 	// splash is true while the launch banner is showing; w/h track the
 	// terminal size so the banner can be centered.
 	splash bool
@@ -142,6 +148,9 @@ type model struct {
 
 // splashDoneMsg ends the launch splash after splashDuration elapses.
 type splashDoneMsg struct{}
+
+// noticeMsg carries the update check's answer, whenever it turns up.
+type noticeMsg string
 
 const splashDuration = 1200 * time.Millisecond
 
@@ -339,10 +348,16 @@ func extraKeys() []key.Binding {
 }
 
 func (m model) Init() tea.Cmd {
+	var cmds []tea.Cmd
 	if m.splash {
-		return tea.Tick(splashDuration, func(time.Time) tea.Msg { return splashDoneMsg{} })
+		cmds = append(cmds, tea.Tick(splashDuration, func(time.Time) tea.Msg { return splashDoneMsg{} }))
 	}
-	return nil
+	if m.awaitNotice != nil {
+		// tea runs commands in their own goroutine, so waiting here costs the
+		// browser nothing: the hint just appears if and when it resolves.
+		cmds = append(cmds, func() tea.Msg { return noticeMsg(m.awaitNotice()) })
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -353,6 +368,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case splashDoneMsg:
 		m.splash = false
+		return m, nil
+	case noticeMsg:
+		// Only take the footer if nothing else is using it: a late answer must
+		// never interrupt a prompt or overwrite the result of an action.
+		if msg != "" && m.status == "" && m.kind == inputNone &&
+			!m.confirmingDelete && !m.choosingAgent {
+			m.notice = string(msg)
+		}
 		return m, nil
 	case tea.KeyMsg:
 		// Any key dismisses the splash early.

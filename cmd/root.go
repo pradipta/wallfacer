@@ -60,19 +60,19 @@ func browseLoop() error {
 	}
 	defer s.Close()
 
-	// Collected once: the browser shows the notice on its footer, and taking
-	// it here is what stops Execute from also printing it to stderr.
-	notice := updateCheck.Result().Line()
+	// The browser is the one front end that outlives a GitHub round trip, so it
+	// does the looking — for its own footer, and to leave a warm cache behind
+	// for one-shot subcommands.
+	updateCheck.Refresh()
 
 	for {
 		if _, err := s.Sync(); err != nil {
 			return err
 		}
-		action, err := tui.Run(s, notice)
+		action, err := tui.Run(s, awaitUpdateNotice)
 		if err != nil {
 			return err
 		}
-		notice = "" // shown once per process, not after every agent session
 		switch action.Type {
 		case tui.ActionQuit:
 			return nil
@@ -139,9 +139,17 @@ func Execute() {
 // non-nil by the time any command runs, and yields a notice at most once.
 var updateCheck *update.Check
 
+// awaitUpdateNotice is handed to the browser, which calls it from a Bubble Tea
+// command — so blocking here delays nothing. The notice is yielded once, so if
+// the browser shows it, reportUpdate stays quiet, and vice versa. Later browser
+// reopens (after an agent session) get an empty string.
+func awaitUpdateNotice() string { return updateCheck.Await().Line() }
+
 // reportUpdate prints the upgrade notice to stderr, so it never pollutes
 // `--json` output or a piped listing. It stays quiet when stderr is not a
-// terminal (scripts, CI) and when the TUI already took the notice.
+// terminal (scripts, CI), when the TUI already took the notice, and when the
+// check has not finished — Result never waits, and an answer that lands too
+// late is picked up from the cache by the next command.
 func reportUpdate() {
 	printUpdateNotice(os.Stderr, isatty.IsTerminal(os.Stderr.Fd()), updateCheck.Result())
 }

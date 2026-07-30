@@ -65,30 +65,46 @@ Key design points:
 
 ## Testing the update notice
 
-`internal/update` is covered by unit tests driving an `httptest` server (cache
-hits and expiry, rate limits, malformed JSON, pre-release payloads, unreachable
-hosts, the grace period, semver comparison); `cmd` covers the stderr/TTY gating
-and `internal/tui` the footer. For a manual smoke test, build a binary that
-claims to be an old release — the check is skipped for dev builds, so a plain
-`make build` never shows a notice:
+`internal/update` never lets anything wait on the network, and the split that
+achieves it is worth knowing before you change it:
+
+- `Start` resolves the check from a cached JSON file in the data dir. It is a
+  local file read (~10µs), never an HTTP call, and it is all a one-shot
+  subcommand ever does.
+- `Refresh` is the only thing that talks to GitHub, on a goroutine, and only
+  `browseLoop` calls it — the browser is the one front end that outlives a
+  ~500ms round trip. It shows a late answer on its footer via `noticeMsg`, and
+  leaves it in the cache for subcommands to print.
+
+So a subcommand shows an update that a *previous* browser session discovered.
+That is deliberate: a command that finishes in 10ms cannot complete a 500ms
+lookup, and the notice is never worth a millisecond of anyone's time.
+
+Unit tests cover the rest — cache hits and expiry, rate limits, malformed JSON,
+pre-release payloads, unreachable hosts, semver comparison, and timing guards
+asserting that `Start`, `Result` and `Await` never block. `cmd` covers the
+stderr/TTY gating; `internal/tui` covers the footer.
+
+For a manual smoke test, build a binary that claims to be an old release — the
+check is skipped for dev builds, so a plain `make build` never shows a notice:
 
 ```bash
 go build -ldflags "-X $(go list -m)/cmd.Version=v0.0.1" -o /tmp/wallfacer-old .
-WALLFACER_DATA_DIR=/tmp/wallfacer-old-data WALLFACER_UPDATE_INTERVAL=0 \
-  /tmp/wallfacer-old sync    # the CLI form, on stderr
-WALLFACER_DATA_DIR=/tmp/wallfacer-old-data WALLFACER_UPDATE_INTERVAL=0 \
-  /tmp/wallfacer-old         # the footer form, in the browser
+export WALLFACER_DATA_DIR=/tmp/wallfacer-old-data WALLFACER_UPDATE_INTERVAL=0
+/tmp/wallfacer-old            # browser: footer hint, and warms the cache
+/tmp/wallfacer-old sync       # subcommand: the same hint on stderr, from cache
 ```
 
-The scratch `WALLFACER_DATA_DIR` keeps your real index and cache out of it, and
-`WALLFACER_UPDATE_INTERVAL=0` defeats the 24h cache so every run re-checks. The
-notice is suppressed when stderr is not a terminal, so piping the run through
-`grep` or `tee` hides it — run it directly.
+Run the browser first — with a cold cache a subcommand has nothing to print. The
+scratch `WALLFACER_DATA_DIR` keeps your real index and cache out of it, and
+`WALLFACER_UPDATE_INTERVAL=0` defeats the 24h cache so the browser re-checks
+every time. The CLI notice is suppressed when stderr is not a terminal, so
+piping the run through `grep` or `tee` hides it — run it directly.
 
 | Variable | Effect |
 |----------|--------|
 | `WALLFACER_NO_UPDATE_CHECK=1` | Turn the check off entirely |
-| `WALLFACER_UPDATE_INTERVAL=0` | Ignore the 24h cache and fetch every run |
+| `WALLFACER_UPDATE_INTERVAL=0` | Ignore the 24h cache and re-check every run |
 | `WALLFACER_UPDATE_API=http://…` | Point at something other than `api.github.com` |
 
 That last one is for working offline: anything answering

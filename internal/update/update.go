@@ -6,11 +6,17 @@
 //   - It must never break a command. Every failure path (no network, GitHub
 //     down, rate limited, malformed JSON, unwritable cache) yields "no notice"
 //     rather than an error.
-//   - It must never make wallfacer feel slow. The HTTP call happens in a
-//     goroutine started before the command's real work, and the result is
-//     collected afterwards with a bounded grace period.
+//   - Nothing may wait on the network, ever. Start only reads the cached
+//     answer, which is a local file read; the HTTP lookup happens exclusively
+//     in Refresh, on a goroutine, and only long-lived front ends call it.
 //   - It must not hammer the API. The answer is cached in the data dir and
 //     re-fetched at most once per Interval (default 24h).
+//
+// That split is deliberate. A one-shot subcommand can finish in 10ms while a
+// GitHub round trip takes ~500ms, so a lookup started by `wallfacer list` would
+// be abandoned at exit — it could only ever slow the command down without
+// having anything to show. The browser, which stays open, does the looking and
+// leaves the answer in the cache; subcommands print what it found.
 package update
 
 import (
@@ -36,10 +42,6 @@ const (
 	DefaultInterval = 24 * time.Hour
 	// DefaultTimeout caps the HTTP request itself.
 	DefaultTimeout = 3 * time.Second
-	// DefaultGrace is how long Result waits for an in-flight check. Commands
-	// do disk work (sync) between Start and Result, so a cached-or-fast check
-	// is usually done by then and this is rarely reached.
-	DefaultGrace = 1500 * time.Millisecond
 
 	// EnvDisable, when set to a non-empty value other than "0"/"false",
 	// disables the check entirely. Packagers and CI should set it.
@@ -98,7 +100,6 @@ type Config struct {
 	APIBase  string
 	Interval time.Duration
 	Timeout  time.Duration
-	Grace    time.Duration
 	// Client overrides the HTTP client (tests).
 	Client *http.Client
 	// Now overrides the clock (tests).
@@ -121,9 +122,6 @@ func (c Config) withDefaults() Config {
 	if c.Timeout == 0 {
 		c.Timeout = DefaultTimeout
 	}
-	if c.Grace == 0 {
-		c.Grace = DefaultGrace
-	}
 	if c.Client == nil {
 		c.Client = &http.Client{Timeout: c.Timeout}
 	}
@@ -133,35 +131,72 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-// Check is an in-flight (or already finished) update check.
+// Check is a resolved-or-pending update check.
 type Check struct {
 	res chan *Notice
-	// grace bounds how long Result blocks.
-	grace time.Duration
+	cfg Config
+	// stale is set when the cache had no usable answer, so Refresh has work.
+	stale bool
+	// refreshed guards against a second Refresh on the same check.
+	refreshed bool
 }
 
-// Start kicks off a check in the background and returns immediately. The
-// returned *Check is always usable; a disabled or skipped check simply yields
-// no notice.
+// Start resolves the check from the cache and returns immediately. It reads one
+// small local file and never touches the network, so it is safe to call at the
+// top of any command. Whether it found anything or not, Refresh is what goes
+// looking for a newer answer.
 func Start(cfg Config) *Check {
 	cfg = cfg.withDefaults()
-	c := &Check{res: make(chan *Notice, 1), grace: cfg.Grace}
+	c := &Check{res: make(chan *Notice, 1), cfg: cfg}
 	if Disabled() || !isReleaseVersion(cfg.Current) {
 		close(c.res)
 		return c
 	}
-	go func() {
-		defer close(c.res)
-		if n := lookup(cfg); n != nil {
-			c.res <- n
-		}
-	}()
+	rel, fresh := readCache(cfg)
+	if fresh {
+		c.deliver(compare(cfg, rel))
+		close(c.res)
+		return c
+	}
+	c.stale = true
 	return c
 }
 
-// Result returns the notice, waiting at most the configured grace period for
-// an in-flight check. It returns nil when there is no upgrade to report, and
-// is safe to call once; later calls return nil.
+// Refresh looks the release up on GitHub in the background when the cached
+// answer is missing or expired, delivering a late notice through Await and
+// leaving it in the cache for the next command.
+//
+// Only a long-lived front end should call it — the browser does, from a Bubble
+// Tea command. A one-shot subcommand would exit before the lookup returned, so
+// it deliberately does not: it prints whatever Start found in the cache, which
+// the browser keeps warm.
+func (c *Check) Refresh() {
+	if c == nil || !c.stale || c.refreshed {
+		return
+	}
+	c.refreshed = true
+	go func() {
+		defer close(c.res)
+		rel, err := fetchLatest(c.cfg)
+		if err != nil {
+			return
+		}
+		writeCache(c.cfg, rel)
+		c.deliver(compare(c.cfg, rel))
+	}()
+}
+
+// deliver posts a notice for whoever collects it first. The buffered channel
+// means this never blocks even if nobody ever collects.
+func (c *Check) deliver(n *Notice) {
+	if n != nil {
+		c.res <- n
+	}
+}
+
+// Result returns the notice if one is already in hand, and nil otherwise. It
+// never blocks and never waits on the network, and yields the notice at most
+// once — whoever takes it owns showing it.
 func (c *Check) Result() *Notice {
 	if c == nil {
 		return nil
@@ -169,9 +204,24 @@ func (c *Check) Result() *Notice {
 	select {
 	case n := <-c.res:
 		return n
-	case <-time.After(c.grace):
+	default:
 		return nil
 	}
+}
+
+// Await blocks until a pending Refresh finishes and returns its notice, or nil.
+// Call it only from a goroutine that is holding nothing up — the browser does,
+// from a Bubble Tea command, so a late answer simply appears when it lands. With
+// no Refresh in flight it returns whatever Start resolved, immediately.
+func (c *Check) Await() *Notice {
+	if c == nil {
+		return nil
+	}
+	if c.stale && !c.refreshed {
+		// Nothing is coming: the channel would never close.
+		return c.Result()
+	}
+	return <-c.res
 }
 
 // Disabled reports whether the user (or a packager) turned the check off.
@@ -180,17 +230,9 @@ func Disabled() bool {
 	return v != "" && v != "0" && v != "false"
 }
 
-// lookup resolves the latest release (from cache when fresh) and compares.
-func lookup(cfg Config) *Notice {
-	rel, ok := readCache(cfg)
-	if !ok {
-		var err error
-		rel, err = fetchLatest(cfg)
-		if err != nil {
-			return nil
-		}
-		writeCache(cfg, rel)
-	}
+// compare turns a resolved release into a notice, or nil when the running
+// version is already current.
+func compare(cfg Config, rel cached) *Notice {
 	if rel.Latest == "" || Compare(rel.Latest, cfg.Current) <= 0 {
 		return nil
 	}
