@@ -59,7 +59,7 @@ type Filter struct {
 	Project   string
 	Tag       string
 	Dir       string
-	Query     string // LIKE match over title, auto_title, first_prompt, dir, project
+	Query     string // LIKE match over title, auto_title, first_prompt, dir, project, agent_type
 	// IncludeHidden includes missing/trashed sessions (default: active only).
 	IncludeHidden bool
 }
@@ -295,9 +295,9 @@ func (s *Store) List(f Filter) ([]Session, error) {
 	if f.Query != "" {
 		q := "%" + f.Query + "%"
 		conds = append(conds, `(s.title LIKE ? OR s.auto_title LIKE ? OR s.first_prompt LIKE ?
-		   OR s.dir LIKE ? OR s.project LIKE ?
+		   OR s.dir LIKE ? OR s.project LIKE ? OR s.agent_type LIKE ?
 		   OR s.id IN (SELECT session_id FROM tags WHERE tag LIKE ?))`)
-		args = append(args, q, q, q, q, q, q)
+		args = append(args, q, q, q, q, q, q, q)
 	}
 	where := ""
 	if len(conds) > 0 {
