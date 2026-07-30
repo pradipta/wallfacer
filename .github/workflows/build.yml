@@ -1,23 +1,26 @@
-name: build
+name: Build
 
-# CI for every push and PR — also feeds the build badge in the README.
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
   build:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
+
     runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
+          cache: true
 
       - name: Vet
         run: go vet ./...
