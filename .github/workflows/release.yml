@@ -43,10 +43,26 @@ jobs:
       # written once the release exists — hence a commit back to main rather than
       # a file kept up to date by hand. Stable tags only: an RC must never become
       # what `brew install` hands people.
+      #
+      # It pushes over SSH with a deploy key because the ruleset on main requires
+      # a pull request, and a deploy key is on that ruleset's bypass list.
+      # GITHUB_TOKEN cannot be: the Actions app is not addable as a bypass actor
+      # on a user-owned repository. See docs/development.md.
       - name: Update Homebrew formula
         if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          DEPLOY_KEY: ${{ secrets.RELEASE_SSH_KEY }}
         run: |
           set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # Pin GitHub's own published host keys rather than trusting first use.
+          curl -fsSL https://api.github.com/meta \
+            | python3 -c 'import json,sys; [print("github.com", k) for k in json.load(sys.stdin)["ssh_keys"]]' \
+            >> ~/.ssh/known_hosts
+          git remote set-url origin git@github.com:${{ github.repository }}.git
+
           git fetch origin main
           git checkout -B main origin/main   # dist/ is gitignored, so it survives
           make brew-formula VERSION=${{ github.ref_name }}
