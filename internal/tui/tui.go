@@ -17,9 +17,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/pradipta/wallfacer/internal/agent"
 	"github.com/pradipta/wallfacer/internal/banner"
 	"github.com/pradipta/wallfacer/internal/store"
 )
+
+// defaultAgentType is preselected in the new-session picker. A configurable
+// preferred agent would replace this.
+const defaultAgentType = "claude-code"
 
 type ActionType int
 
@@ -37,6 +42,7 @@ type Action struct {
 	Session store.Session // for ActionResume
 
 	// for ActionNew
+	Agent   string
 	Dir     string
 	Title   string
 	Project string
@@ -100,20 +106,29 @@ type model struct {
 	draft Action
 	// confirmingDelete is set while the d→y/n prompt is up.
 	confirmingDelete bool
-	status           string
+	// choosingAgent is set while the new-session agent picker is up, ahead of
+	// the inputNew* chain. agentChoices holds the registered adapter types.
+	choosingAgent bool
+	agentChoices  []string
+	agentChoice   int
+	status        string
 	// splash is true while the launch banner is showing; w/h track the
 	// terminal size so the banner can be centered.
 	splash bool
 	w, h   int
 
 	// all is the unfiltered session set. It backs the header counts and the
-	// project/tag cycles, and is deliberately not refetched when a filter
-	// changes so the cycles stay stable while you page through them.
+	// project/tag/agent cycles, and is deliberately not refetched when a
+	// filter changes so the cycles stay stable while you page through them.
 	all      []store.Session
 	projects []string
 	tags     []string
-	// projIdx and tagIdx index into projects/tags; -1 means no filter.
-	projIdx, tagIdx int
+	// agents are the agent types actually present in all, so cycling the
+	// filter never lands on an empty view.
+	agents []string
+	// projIdx, tagIdx and agentIdx index into projects/tags/agents; -1 means
+	// no filter.
+	projIdx, tagIdx, agentIdx int
 	// showDetail is the user's toggle; the pane also hides itself on narrow
 	// terminals regardless.
 	showDetail bool
@@ -159,6 +174,7 @@ func newModel(s *store.Store) (model, error) {
 		input:      ti,
 		projIdx:    -1,
 		tagIdx:     -1,
+		agentIdx:   -1,
 		showDetail: true,
 	}
 	if err := m.reload(); err != nil {
@@ -180,7 +196,7 @@ func (m *model) reload() error {
 	}
 	m.all = all
 
-	projSet, tagSet := map[string]bool{}, map[string]bool{}
+	projSet, tagSet, agentSet := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, x := range all {
 		if x.Project != "" {
 			projSet[x.Project] = true
@@ -188,23 +204,28 @@ func (m *model) reload() error {
 		for _, t := range x.Tags {
 			tagSet[t] = true
 		}
+		if x.AgentType != "" {
+			agentSet[x.AgentType] = true
+		}
 	}
 	// Preserve the active filters across the reload where they still exist.
-	prevProj, prevTag := m.activeProject(), m.activeTag()
-	m.projects, m.tags = sortedKeys(projSet), sortedKeys(tagSet)
+	prevProj, prevTag, prevAgent := m.activeProject(), m.activeTag(), m.activeAgent()
+	m.projects, m.tags, m.agents = sortedKeys(projSet), sortedKeys(tagSet), sortedKeys(agentSet)
 	m.projIdx = indexOf(m.projects, prevProj)
 	m.tagIdx = indexOf(m.tags, prevTag)
+	m.agentIdx = indexOf(m.agents, prevAgent)
 
 	return m.applyFilter()
 }
 
-// applyFilter re-queries the store with the active project/tag filters. Going
-// back through store.List rather than filtering in memory reuses the query
-// path the CLI already exercises.
+// applyFilter re-queries the store with the active project/tag/agent filters.
+// Going back through store.List rather than filtering in memory reuses the
+// query path the CLI already exercises.
 func (m *model) applyFilter() error {
 	sessions, err := m.store.List(store.Filter{
-		Project: m.activeProject(),
-		Tag:     m.activeTag(),
+		Project:   m.activeProject(),
+		Tag:       m.activeTag(),
+		AgentType: m.activeAgent(),
 	})
 	if err != nil {
 		return err
@@ -222,6 +243,7 @@ func (m *model) applyFilter() error {
 
 func (m model) activeProject() string { return at(m.projects, m.projIdx) }
 func (m model) activeTag() string     { return at(m.tags, m.tagIdx) }
+func (m model) activeAgent() string   { return at(m.agents, m.agentIdx) }
 
 // cycle advances an index through [0, n) and then to -1 ("no filter"), so
 // repeatedly pressing the key always returns you to the unfiltered view.
@@ -254,6 +276,37 @@ func indexOf(xs []string, want string) int {
 	return -1
 }
 
+// wrapIndex moves through [0, n) and wraps around at both ends. Unlike cycle
+// it has no "off" position: the agent picker always has something selected.
+func wrapIndex(i, n int) int {
+	if n <= 0 {
+		return 0
+	}
+	return ((i % n) + n) % n
+}
+
+func firstOr(xs []string, fallback string) string {
+	if len(xs) == 0 {
+		return fallback
+	}
+	return xs[0]
+}
+
+// registeredAgents lists the adapter types available to launch, in the
+// registry's stable order.
+func registeredAgents() []string {
+	all := agent.All()
+	out := make([]string, 0, len(all))
+	for _, a := range all {
+		out = append(out, a.Type())
+	}
+	return out
+}
+
+// availableAgents is the seam the agent picker reads through, so tests can fix
+// the choice set without mutating the global registry.
+var availableAgents = registeredAgents
+
 func sortedKeys(set map[string]bool) []string {
 	out := make([]string, 0, len(set))
 	for k := range set {
@@ -273,6 +326,7 @@ func extraKeys() []key.Binding {
 		key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 		key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "filter project")),
 		key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "filter tag")),
+		key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "filter agent")),
 		key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "clear filters")),
 		key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "detail")),
 	}
@@ -299,6 +353,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.splash {
 			m.splash = false
 			return m, nil
+		}
+		if m.choosingAgent {
+			return m.updateAgentChoice(msg)
 		}
 		if m.kind != inputNone {
 			return m.updateInput(msg)
@@ -353,9 +410,8 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	case "n":
-		wd, _ := os.Getwd()
 		m.draft = Action{Type: ActionNew}
-		return m.openInput(inputNewDir, wd), nil
+		return m.startNewSession(), nil
 	case "r":
 		if hasSel {
 			return m.openInput(inputRename, sel.Title), nil
@@ -379,11 +435,14 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "T":
 		m.tagIdx = cycle(m.tagIdx, len(m.tags))
 		return m.refilter(), nil
+	case "A":
+		m.agentIdx = cycle(m.agentIdx, len(m.agents))
+		return m.refilter(), nil
 	case "x":
-		if m.projIdx == -1 && m.tagIdx == -1 {
+		if m.projIdx == -1 && m.tagIdx == -1 && m.agentIdx == -1 {
 			break
 		}
-		m.projIdx, m.tagIdx = -1, -1
+		m.projIdx, m.tagIdx, m.agentIdx = -1, -1, -1
 		return m.refilter(), nil
 	case "tab":
 		m.showDetail = !m.showDetail
@@ -447,6 +506,81 @@ func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.status = fmt.Sprintf("trashed %q (restore from %s)", sel.DisplayTitle(), m.store.TrashDir())
 	return m, nil
+}
+
+// startNewSession opens the new-session flow. The agent is asked first, and
+// only when there is a choice to make: with a single adapter registered the
+// flow is exactly what it was before agents were pluggable.
+func (m model) startNewSession() model {
+	choices := availableAgents()
+	if len(choices) < 2 {
+		m.draft.Agent = firstOr(choices, defaultAgentType)
+		return m.promptNewDir()
+	}
+	m.agentChoices = choices
+	m.agentChoice = max(indexOf(choices, defaultAgentType), 0)
+	m.choosingAgent = true
+	return m
+}
+
+// promptNewDir advances to the directory question, prefilled with the
+// directory wallfacer itself was launched from.
+func (m model) promptNewDir() model {
+	wd, _ := os.Getwd()
+	return m.openInput(inputNewDir, wd)
+}
+
+// updateAgentChoice drives the picker: arrows or h/l to move, a digit to jump
+// straight to one, enter to accept, esc to abandon the whole new-session flow.
+func (m model) updateAgentChoice(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "ctrl+c":
+		m.action = Action{Type: ActionQuit}
+		return m, tea.Quit
+	case "esc", "q":
+		m.choosingAgent = false
+		m.draft = Action{}
+		m.status = "new session cancelled"
+		return m, nil
+	case "left", "h", "shift+tab":
+		m.agentChoice = wrapIndex(m.agentChoice-1, len(m.agentChoices))
+		return m, nil
+	case "right", "l", "tab":
+		m.agentChoice = wrapIndex(m.agentChoice+1, len(m.agentChoices))
+		return m, nil
+	case "enter":
+		return m.pickAgent(m.agentChoice), nil
+	}
+	// Digits select directly, so a two-agent setup is one keystroke.
+	if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+		if i := int(key[0] - '1'); i < len(m.agentChoices) {
+			return m.pickAgent(i), nil
+		}
+	}
+	return m, nil
+}
+
+func (m model) pickAgent(i int) model {
+	m.choosingAgent = false
+	m.draft.Agent = at(m.agentChoices, i)
+	return m.promptNewDir()
+}
+
+// agentChooserView renders the picker on the footer line.
+func (m model) agentChooserView() string {
+	chips := make([]string, len(m.agentChoices))
+	for i, a := range m.agentChoices {
+		label := fmt.Sprintf("%d %s", i+1, a)
+		if i == m.agentChoice {
+			chips[i] = choiceSelectedStyle.Render(label)
+			continue
+		}
+		chips[i] = choiceStyle.Render(label)
+	}
+	line := promptStyle.Render("agent: ") + strings.Join(chips, "  ") +
+		statusStyle.Render("  (←/→ or 1-9 · enter to continue · esc cancels)")
+	return ansi.Truncate(line, max(m.w, 1), "…")
 }
 
 func (m model) openInput(kind inputKind, initial string) model {
@@ -617,8 +751,8 @@ func (m model) headerView() string {
 	return left + " " + headerRuleStyle.Render(strings.Repeat("─", gap)) + " " + right
 }
 
-// chipsView renders the active project/tag filters. They are shown only when
-// set, so the header stays quiet in the common unfiltered case.
+// chipsView renders the active project/tag/agent filters. They are shown only
+// when set, so the header stays quiet in the common unfiltered case.
 func (m model) chipsView() string {
 	var chips []string
 	if p := m.activeProject(); p != "" {
@@ -626,6 +760,9 @@ func (m model) chipsView() string {
 	}
 	if t := m.activeTag(); t != "" {
 		chips = append(chips, chipTagStyle.Render("#"+t))
+	}
+	if a := m.activeAgent(); a != "" {
+		chips = append(chips, chipAgentStyle.Render(a))
 	}
 	if len(chips) == 0 {
 		return ""
@@ -637,6 +774,8 @@ func (m model) chipsView() string {
 // when you are typing or confirming, that is the only thing worth showing.
 func (m model) footerView() string {
 	switch {
+	case m.choosingAgent:
+		return m.agentChooserView()
 	case m.kind != inputNone:
 		return m.input.View()
 	case m.confirmingDelete:

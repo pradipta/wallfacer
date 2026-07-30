@@ -46,6 +46,18 @@ type Adapter interface {
 	ResumeCmd(dir, id string) *exec.Cmd
 }
 
+// CompanionFiler is an optional interface for adapters whose sessions occupy
+// more than one path on disk — sidecar metadata, prompt history, scratch
+// directories. wallfacer tracks exactly one file per session, so without this
+// the rest of the set would survive `rm` and keep showing up in the agent's
+// own session listings.
+type CompanionFiler interface {
+	// CompanionFiles returns sibling paths — files or directories — that
+	// belong to the same session as the tracked file at path. Paths that do
+	// not exist may be returned; callers treat the whole set as best-effort.
+	CompanionFiles(path string) []string
+}
+
 var registry = map[string]Adapter{}
 
 func Register(a Adapter) { registry[a.Type()] = a }

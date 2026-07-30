@@ -74,7 +74,12 @@ func browseLoop() error {
 				pause()
 			}
 		case tui.ActionNew:
-			a, _ := agent.Get("claude-code")
+			a, ok := resolveAgent(action.Agent)
+			if !ok {
+				fmt.Fprintf(os.Stderr, "wallfacer: no adapter for agent %q\n", action.Agent)
+				pause()
+				continue
+			}
 			res, err := launcher.New(s, a, action.Dir, launcher.Overlay{
 				Title:   action.Title,
 				Project: action.Project,
@@ -89,6 +94,15 @@ func browseLoop() error {
 			}
 		}
 	}
+}
+
+// resolveAgent looks up the agent the browser asked for, falling back to the
+// default so an empty choice can never strand the new-session flow.
+func resolveAgent(agentType string) (agent.Adapter, bool) {
+	if a, ok := agent.Get(agentType); ok {
+		return a, true
+	}
+	return agent.Get(defaultAgentType)
 }
 
 // pause lets the user read an error before the alt-screen TUI redraws over it.
