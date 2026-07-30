@@ -9,16 +9,31 @@
 # HomebrewFormula/wallfacer.rb, which is what `brew tap` reads.
 #
 #   usage: scripts/brew-formula.sh <tag> [dist-dir]
+#          scripts/brew-formula.sh <tag> --from-release
+#
+# With --from-release the checksums come from the checksums.txt already attached
+# to that tag's GitHub release, so the formula for any published version can be
+# regenerated anywhere, without rebuilding and without trusting a local build to
+# be byte-identical to the released one.
 #
 # BREW_BASE_URL overrides where the archives are fetched from; point it at
 # file://$PWD/dist to install a formula straight out of a local build.
 
 set -euo pipefail
 
-tag=${1:?usage: brew-formula.sh <tag> [dist-dir]}
+tag=${1:?usage: brew-formula.sh <tag> [dist-dir|--from-release]}
 dist=${2:-dist}
 version=${tag#v}
 base=${BREW_BASE_URL:-https://github.com/pradipta/wallfacer/releases/download/$tag}
+
+if [[ $dist == --from-release ]]; then
+	dist=$(mktemp -d)
+	trap 'rm -rf "$dist"' EXIT
+	curl -fsSL "$base/checksums.txt" -o "$dist/checksums.txt" || {
+		echo "brew-formula: no checksums.txt on the $tag release" >&2
+		exit 1
+	}
+fi
 
 sums="$dist/checksums.txt"
 [[ -f $sums ]] || {

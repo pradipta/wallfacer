@@ -159,6 +159,48 @@ download by sha256 and those checksums don't exist until the release binaries
 are built. That is also why the release workflow has to commit back to `main`
 after publishing: at tag time there is nothing to hash yet.
 
+It can also be regenerated from a release that already exists, which is how to
+repair a formula without cutting a new version — the checksums come from the
+`checksums.txt` attached to that release, so they match the published archives
+by construction:
+
+```bash
+scripts/brew-formula.sh v1.2.1 --from-release > HomebrewFormula/wallfacer.rb
+```
+
+### Why the release job pushes with a deploy key
+
+`main` carries a ruleset requiring a pull request, one approving review and two
+passing `build` checks. `GITHUB_TOKEN` cannot bypass it, and cannot be granted a
+bypass either: naming the Actions app as a bypass actor on a user-owned
+repository is rejected with *"Actor GitHub Actions integration must be part of
+the ruleset source or owner organization"*. Adding the **Write** repository role
+to the bypass list does not help — the Actions bot holds no repository role, and
+the push is still rejected.
+
+So the ruleset's bypass list includes **Deploy keys**, and the release job pushes
+over SSH with a read-write deploy key whose private half is the
+`RELEASE_SSH_KEY` secret. GitHub's own published host keys are pinned from
+`api.github.com/meta` rather than trusted on first use.
+
+The tradeoff is explicit: that key can push to `main` without review. It is
+scoped to this repository alone — unlike a personal access token, it grants
+nothing anywhere else — and it is revocable at any time:
+
+```bash
+gh repo deploy-key list
+gh repo deploy-key delete <id>
+gh secret delete RELEASE_SSH_KEY
+```
+
+To rotate it, generate a new keypair, `gh repo deploy-key add key.pub
+--allow-write --title …`, `gh secret set RELEASE_SSH_KEY < key`, then delete the
+old key.
+
+If you would rather have no bypass at all, delete the workflow step and run the
+`--from-release` command above in a pull request after each release. That costs
+one PR per release and no stored credential.
+
 ### Testing the tap without cutting a release
 
 Two halves, both worth rehearsing after any change to `make release`, the
