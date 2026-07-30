@@ -3,12 +3,14 @@ package cmd
 import (
 	"github.com/pradipta/wallfacer/internal/agent"
 	"github.com/pradipta/wallfacer/internal/agent/claudecode"
+	"github.com/pradipta/wallfacer/internal/agent/cursor"
 	"github.com/pradipta/wallfacer/internal/agent/kirocli"
 	"github.com/pradipta/wallfacer/internal/store"
 )
 
 func init() {
 	agent.Register(claudecode.New())
+	agent.Register(cursor.New())
 	agent.Register(kirocli.New())
 }
 

@@ -84,7 +84,7 @@ func init() {
 	listCmd.Flags().StringVar(&listFlags.project, "project", "", "filter by project")
 	listCmd.Flags().StringVar(&listFlags.tag, "tag", "", "filter by tag")
 	listCmd.Flags().StringVar(&listFlags.dir, "dir", "", "filter by exact working directory")
-	listCmd.Flags().StringVar(&listFlags.agent, "agent", "", "filter by agent type (claude-code, kiro-cli)")
+	listCmd.Flags().StringVar(&listFlags.agent, "agent", "", "filter by agent type (claude-code, cursor-agent, kiro-cli)")
 	listCmd.Flags().BoolVarP(&listFlags.all, "all", "a", false, "include missing/trashed sessions")
 	listCmd.Flags().BoolVar(&listFlags.asJSON, "json", false, "output JSON")
 	rootCmd.AddCommand(listCmd)
