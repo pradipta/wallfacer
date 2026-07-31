@@ -173,7 +173,7 @@ func TestListAgentTypeMatchesSubstringsCaseInsensitively(t *testing.T) {
 		want  []string
 	}{
 		{name: "prefix", query: "kiro", want: []string{"ccc-333"}},
-		{name: "fragment", query: "agent", want: []string{"bbb-222", "ccc-333"}},
+		{name: "fragment", query: "a", want: []string{"aaa-111", "bbb-222"}},
 		{name: "case insensitive", query: "CLAUDE", want: []string{"aaa-111"}},
 		{name: "exact", query: "cursor-agent", want: []string{"bbb-222"}},
 	}
