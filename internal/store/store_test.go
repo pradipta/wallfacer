@@ -155,6 +155,50 @@ func TestSearchAgentType(t *testing.T) {
 	}
 }
 
+func TestListAgentTypeMatchesSubstringsCaseInsensitively(t *testing.T) {
+	s := openTestStore(t)
+	for _, x := range []store.Session{
+		func() store.Session { x := sampleSession("aaa-111"); x.AgentType = "claude-code"; return x }(),
+		func() store.Session { x := sampleSession("bbb-222"); x.AgentType = "cursor-agent"; return x }(),
+		func() store.Session { x := sampleSession("ccc-333"); x.AgentType = "kiro-cli"; return x }(),
+	} {
+		if err := s.Upsert(x); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tests := []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{name: "prefix", query: "kiro", want: []string{"ccc-333"}},
+		{name: "fragment", query: "agent", want: []string{"bbb-222", "ccc-333"}},
+		{name: "case insensitive", query: "CLAUDE", want: []string{"aaa-111"}},
+		{name: "exact", query: "cursor-agent", want: []string{"bbb-222"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := s.List(store.Filter{AgentType: tc.query})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %d sessions, want %d: %v", len(got), len(tc.want), got)
+			}
+			gotIDs := make(map[string]bool, len(got))
+			for _, session := range got {
+				gotIDs[session.ID] = true
+			}
+			for _, id := range tc.want {
+				if !gotIDs[id] {
+					t.Errorf("result IDs = %v, want %q", gotIDs, id)
+				}
+			}
+		})
+	}
+}
+
 func TestResolve(t *testing.T) {
 	s := openTestStore(t)
 	s.Upsert(sampleSession("abc-123"))
