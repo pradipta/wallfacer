@@ -1,0 +1,57 @@
+name: Welcome
+
+# Greets new pull requests with a thank-you and the review turnaround.
+#
+# pull_request_target (not pull_request) so the token can comment on PRs
+# opened from forks. Nothing from the PR is checked out or executed here,
+# which is what makes pull_request_target safe in this workflow.
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  greet:
+    runs-on: ubuntu-latest
+
+    # Skip the maintainer's own PRs.
+    if: github.event.pull_request.author_association != 'OWNER'
+
+    steps:
+      - name: Comment on the pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          ASSOCIATION: ${{ github.event.pull_request.author_association }}
+        run: |
+          set -euo pipefail
+
+          if [ "$ASSOCIATION" = "FIRST_TIME_CONTRIBUTOR" ] || [ "$ASSOCIATION" = "FIRST_TIMER" ]; then
+            greeting="Welcome to wallfacer, @${AUTHOR} — and thank you for your first pull request!"
+          else
+            greeting="Thanks for the pull request, @${AUTHOR}!"
+          fi
+
+          cat > body.md <<EOF
+          ${greeting}
+
+          A maintainer will take a look within **3 business days**. If it has been
+          longer than that, feel free to nudge this thread.
+
+          While you wait:
+
+          - CI runs \`go vet\`, \`go test\` and \`go build\` on Linux and macOS — check the
+            **Build** job below and push fixes if anything is red.
+          - The [development guide](https://github.com/${REPO}/blob/main/docs/development.md)
+            covers building and testing locally.
+          - Adding an agent adapter? [docs/adding-an-agent.md](https://github.com/${REPO}/blob/main/docs/adding-an-agent.md)
+            has the interface and a checklist.
+
+          New agent adapters are especially welcome. 🙏
+          EOF
+
+          gh pr comment "$PR" --repo "$REPO" --body-file body.md
