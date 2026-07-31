@@ -277,8 +277,8 @@ func (s *Store) List(f Filter) ([]Session, error) {
 		conds = append(conds, `s.status != 'sidechain'`)
 	}
 	if f.AgentType != "" {
-		conds = append(conds, `s.agent_type = ?`)
-		args = append(args, f.AgentType)
+		conds = append(conds, `s.agent_type LIKE ?`)
+		args = append(args, "%"+f.AgentType+"%")
 	}
 	if f.Project != "" {
 		conds = append(conds, `s.project = ?`)

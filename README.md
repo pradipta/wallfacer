@@ -140,7 +140,7 @@ Every subcommand is one-shot: it runs, prints, and exits. Same index as the brow
 | `wallfacer` | *(no subcommand)* Open the interactive browser |
 | `wallfacer new [dir] [--agent A] [--title T] [--project P] [--tag t]` | Start a new session in a directory |
 | `wallfacer resume <ref>` | Reopen a session in its original directory |
-| `wallfacer list [--project P] [--tag T] [--agent A] [--json]` | List sessions, newest first |
+| `wallfacer list [--project P] [--tag T] [--agent A] [--json]` | List sessions, newest first; `--agent` accepts a case-insensitive substring |
 | `wallfacer search <query>` | Search titles, prompts, dirs, projects, tags |
 | `wallfacer show <ref>` | Full details of one session |
 | `wallfacer rename <ref> <title>` | Rename a session |
@@ -159,7 +159,8 @@ wallfacer scans `~/.claude/projects/`, `~/.cursor/chats/`, `~/.kiro/sessions/cli
 `~/.codex/sessions/`, reading
 just the head of each session file for its working directory, timestamps, and first prompt (the
 automatic title). Every agent's listing carries the agent type, so `wallfacer list` shows an
-`AGENT` column and `--agent` narrows to one. Your metadata lives in SQLite at
+`AGENT` column and `--agent` narrows to a case-insensitive substring such as
+`kiro` or `cursor`. Your metadata lives in SQLite at
 `~/.local/share/wallfacer/` — delete it and you lose only the overlay, never a conversation.
 Sync is incremental, so it stays fast with hundreds of sessions.
 
