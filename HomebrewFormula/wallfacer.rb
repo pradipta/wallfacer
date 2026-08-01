@@ -5,29 +5,29 @@
 class Wallfacer < Formula
   desc "Terminal session manager for Claude Code, Cursor CLI, Kiro CLI and Codex"
   homepage "https://github.com/pradipta/wallfacer"
-  version "1.2.2"
+  version "1.2.3"
   license "MIT"
 
   # Pure Go, statically linked: nothing to depend on, nothing to build here.
   on_macos do
     on_arm do
-      url "https://github.com/pradipta/wallfacer/releases/download/v1.2.2/wallfacer-darwin-arm64.tar.gz"
-      sha256 "e1be3a40d9516c0e74ab56980d499f60c3e8eb999b9c953655b19dfac7113683"
+      url "https://github.com/pradipta/wallfacer/releases/download/v1.2.3/wallfacer-darwin-arm64.tar.gz"
+      sha256 "6460965f52ab7fc822affcb02476dc33616cce1fc2765ef3e9ea2d140bcfa44f"
     end
     on_intel do
-      url "https://github.com/pradipta/wallfacer/releases/download/v1.2.2/wallfacer-darwin-amd64.tar.gz"
-      sha256 "34cfbafab9b60dd168f83d003134d409c9ac0194797e32706e580d1015ec75cb"
+      url "https://github.com/pradipta/wallfacer/releases/download/v1.2.3/wallfacer-darwin-amd64.tar.gz"
+      sha256 "270ca85129830594baa18ee7e990d9e8f78465962b020e598e7c9f79531a7d63"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/pradipta/wallfacer/releases/download/v1.2.2/wallfacer-linux-arm64.tar.gz"
-      sha256 "e4ed583aa21e378891f86b9b13e0688d1c77b8452a5a1bc8f9cdc9899939c06d"
+      url "https://github.com/pradipta/wallfacer/releases/download/v1.2.3/wallfacer-linux-arm64.tar.gz"
+      sha256 "ebae08b01042a548c8e772e9c8c116546e59b9df2efd639da5b776514d35c344"
     end
     on_intel do
-      url "https://github.com/pradipta/wallfacer/releases/download/v1.2.2/wallfacer-linux-amd64.tar.gz"
-      sha256 "ebe4d32cbb17d8079eea79e15a1f4a9affa1e99426aa91e0fccb772ad751a54b"
+      url "https://github.com/pradipta/wallfacer/releases/download/v1.2.3/wallfacer-linux-amd64.tar.gz"
+      sha256 "de93dc1a584a091a8ab560b812b55764b1aacf340cb7c4ec17be83e96a3a1ea9"
     end
   end
 
